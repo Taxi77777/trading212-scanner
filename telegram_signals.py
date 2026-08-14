@@ -2,8 +2,8 @@
 ╔══════════════════════════════════════════════════════════════╗
 ║  InstitutionAI Pro — CFD Telegram Signals Bot               ║
 ║  Stratégie: Insiders SEC + Dark Pools + Options + TimesFM   ║
-║  CFD ACTIONS avec TP/SL synchronisés au score IA            ║
-║  Levier x5 actions | x20 indices (règles ESMA)              ║
+║  ACTIONS CFD UNIQUEMENT — Levier x5 (règle ESMA)            ║
+║  Pas d'indices, pas d'or — que des actions individuelles    ║
 ╚══════════════════════════════════════════════════════════════╝
 """
 
@@ -21,8 +21,8 @@ MIN_SCORE          = int(os.getenv("MIN_SCORE", "75"))
 MAX_ALERTS         = int(os.getenv("MAX_ALERTS", "5"))
 CAPITAL            = float(os.getenv("CAPITAL_PAR_TRADE", "100"))
 
-# ─── LEVIER ESMA ─────────────────────────────────────────────
-LEVIER = {"STOCK": 5, "INDEX": 20, "GOLD": 20, "FOREX": 30}
+# ─── LEVIER ESMA — ACTIONS UNIQUEMENT x5 ────────────────────
+LEVIER = 5  # Levier fixe x5 sur toutes les actions (règle ESMA)
 
 # ─── TP/SL DYNAMIQUES selon le SCORE IA ─────────────────────
 # Plus le score est élevé, plus les TP sont ambitieux
@@ -62,42 +62,51 @@ def get_tp_gains_cfd(tp: dict, capital: float, levier: int) -> dict:
         "pct_sl":    round(tp["sl_pct"]  * levier, 1),
     }
 
-# ─── UNIVERS CFD ─────────────────────────────────────────────
+# ─── UNIVERS CFD — ACTIONS UNIQUEMENT (levier x5) ───────────
 STOCKS = [
-    {"ticker":"NVDA","name":"NVIDIA Corp.",          "t212":"NVDA",   "sector":"TECH",    "type":"STOCK","flag":"🖥️","insider_buys":3,"dark_pool":92,"option_flow":"VERY_BULLISH","funds":["Citadel","TwoSigma"]},
-    {"ticker":"PLTR","name":"Palantir Technologies", "t212":"PLTR",   "sector":"TECH",    "type":"STOCK","flag":"🤖","insider_buys":4,"dark_pool":88,"option_flow":"VERY_BULLISH","funds":["ARK","Dragoneer"]},
-    {"ticker":"AMD", "name":"Advanced Micro Devices","t212":"AMD",    "sector":"TECH",    "type":"STOCK","flag":"🖥️","insider_buys":2,"dark_pool":83,"option_flow":"BULLISH",     "funds":["Citadel","TwoSigma"]},
-    {"ticker":"MSFT","name":"Microsoft Corp.",       "t212":"MSFT",   "sector":"TECH",    "type":"STOCK","flag":"🖥️","insider_buys":2,"dark_pool":80,"option_flow":"BULLISH",     "funds":["Vanguard","BlackRock"]},
-    {"ticker":"META","name":"Meta Platforms",        "t212":"META",   "sector":"TECH",    "type":"STOCK","flag":"📱","insider_buys":1,"dark_pool":78,"option_flow":"BULLISH",     "funds":["BlackRock","Tiger"]},
-    {"ticker":"GOOGL","name":"Alphabet Inc.",        "t212":"GOOGL",  "sector":"TECH",    "type":"STOCK","flag":"🔍","insider_buys":2,"dark_pool":76,"option_flow":"BULLISH",     "funds":["Vanguard","Fidelity"]},
-    {"ticker":"TSLA","name":"Tesla Inc.",            "t212":"TSLA",   "sector":"TECH",    "type":"STOCK","flag":"🚗","insider_buys":0,"dark_pool":70,"option_flow":"BULLISH",     "funds":["ARK","Cathie"]},
-    {"ticker":"COIN","name":"Coinbase Global",       "t212":"COIN",   "sector":"TECH",    "type":"STOCK","flag":"🪙","insider_buys":2,"dark_pool":81,"option_flow":"BULLISH",     "funds":["ARK","Tiger"]},
-    {"ticker":"LMT", "name":"Lockheed Martin",       "t212":"LMT",    "sector":"DEFENSE", "type":"STOCK","flag":"🛡️","insider_buys":3,"dark_pool":86,"option_flow":"VERY_BULLISH","funds":["Fidelity","Vanguard"]},
-    {"ticker":"RTX", "name":"RTX Corporation",       "t212":"RTX",    "sector":"DEFENSE", "type":"STOCK","flag":"✈️","insider_buys":2,"dark_pool":80,"option_flow":"BULLISH",     "funds":["Vanguard","StateStreet"]},
-    {"ticker":"AXON","name":"Axon Enterprise",       "t212":"AXON",   "sector":"DEFENSE", "type":"STOCK","flag":"⚡","insider_buys":3,"dark_pool":85,"option_flow":"VERY_BULLISH","funds":["ARK","Coatue"]},
-    {"ticker":"LLY", "name":"Eli Lilly & Co.",       "t212":"LLY",    "sector":"HEALTH",  "type":"STOCK","flag":"💊","insider_buys":2,"dark_pool":89,"option_flow":"VERY_BULLISH","funds":["Fidelity","Vanguard"]},
-    {"ticker":"ISRG","name":"Intuitive Surgical",    "t212":"ISRG",   "sector":"HEALTH",  "type":"STOCK","flag":"🏥","insider_buys":1,"dark_pool":77,"option_flow":"BULLISH",     "funds":["T.RowePrice","Baillie"]},
-    {"ticker":"JPM", "name":"JPMorgan Chase",        "t212":"JPM",    "sector":"FINANCE", "type":"STOCK","flag":"🏦","insider_buys":2,"dark_pool":82,"option_flow":"BULLISH",     "funds":["Vanguard","BlackRock"]},
-    {"ticker":"GS",  "name":"Goldman Sachs",         "t212":"GS",     "sector":"FINANCE", "type":"STOCK","flag":"💰","insider_buys":1,"dark_pool":79,"option_flow":"BULLISH",     "funds":["Vanguard","Fidelity"]},
-    {"ticker":"ENPH","name":"Enphase Energy",        "t212":"ENPH",   "sector":"ENERGY",  "type":"STOCK","flag":"🔋","insider_buys":3,"dark_pool":84,"option_flow":"VERY_BULLISH","funds":["ARK","Coatue"]},
-    {"ticker":"NEE", "name":"NextEra Energy",        "t212":"NEE",    "sector":"ENERGY",  "type":"STOCK","flag":"⚡","insider_buys":2,"dark_pool":77,"option_flow":"BULLISH",     "funds":["Vanguard","BlackRock"]},
-    # Indices CFD (levier x20)
-    {"ticker":"SPY", "name":"S&P 500 Index CFD",     "t212":"US500",  "sector":"INDEX",   "type":"INDEX","flag":"🇺🇸","insider_buys":0,"dark_pool":80,"option_flow":"BULLISH",    "funds":["Vanguard","BlackRock"]},
-    {"ticker":"QQQ", "name":"NASDAQ 100 CFD",        "t212":"US100",  "sector":"INDEX",   "type":"INDEX","flag":"📈","insider_buys":0,"dark_pool":78,"option_flow":"BULLISH",     "funds":["Vanguard","Fidelity"]},
-    {"ticker":"GLD", "name":"Or / Gold CFD",         "t212":"XAUUSD", "sector":"GOLD",    "type":"GOLD", "flag":"🥇","insider_buys":0,"dark_pool":72,"option_flow":"NEUTRAL",     "funds":["Bridgewater","RayDalio"]},
+    # ── TECH ────────────────────────────────────────────────
+    {"ticker":"NVDA", "name":"NVIDIA Corporation",    "t212":"NVDA",  "sector":"TECH",    "flag":"🖥️", "insider_buys":3, "dark_pool":92, "option_flow":"VERY_BULLISH", "funds":["Citadel","TwoSigma"]},
+    {"ticker":"PLTR", "name":"Palantir Technologies", "t212":"PLTR",  "sector":"TECH",    "flag":"🤖", "insider_buys":4, "dark_pool":88, "option_flow":"VERY_BULLISH", "funds":["ARK","Dragoneer"]},
+    {"ticker":"AMD",  "name":"Advanced Micro Devices","t212":"AMD",   "sector":"TECH",    "flag":"🖥️", "insider_buys":2, "dark_pool":83, "option_flow":"BULLISH",      "funds":["Citadel","TwoSigma"]},
+    {"ticker":"MSFT", "name":"Microsoft Corp.",       "t212":"MSFT",  "sector":"TECH",    "flag":"💻", "insider_buys":2, "dark_pool":80, "option_flow":"BULLISH",      "funds":["Vanguard","BlackRock"]},
+    {"ticker":"META", "name":"Meta Platforms",        "t212":"META",  "sector":"TECH",    "flag":"📱", "insider_buys":1, "dark_pool":78, "option_flow":"BULLISH",      "funds":["BlackRock","Tiger"]},
+    {"ticker":"GOOGL","name":"Alphabet (Google)",     "t212":"GOOGL", "sector":"TECH",    "flag":"🔍", "insider_buys":2, "dark_pool":76, "option_flow":"BULLISH",      "funds":["Vanguard","Fidelity"]},
+    {"ticker":"TSLA", "name":"Tesla Inc.",            "t212":"TSLA",  "sector":"TECH",    "flag":"🚗", "insider_buys":0, "dark_pool":70, "option_flow":"BULLISH",      "funds":["ARK","Cathie"]},
+    {"ticker":"AMZN", "name":"Amazon.com",            "t212":"AMZN",  "sector":"TECH",    "flag":"📦", "insider_buys":1, "dark_pool":79, "option_flow":"BULLISH",      "funds":["Vanguard","Fidelity"]},
+    {"ticker":"COIN", "name":"Coinbase Global",       "t212":"COIN",  "sector":"TECH",    "flag":"🪙", "insider_buys":2, "dark_pool":81, "option_flow":"BULLISH",      "funds":["ARK","Tiger"]},
+    {"ticker":"UBER", "name":"Uber Technologies",     "t212":"UBER",  "sector":"TECH",    "flag":"🚕", "insider_buys":1, "dark_pool":74, "option_flow":"BULLISH",      "funds":["Coatue","Dragoneer"]},
+    {"ticker":"SNOW", "name":"Snowflake Inc.",        "t212":"SNOW",  "sector":"TECH",    "flag":"❄️", "insider_buys":1, "dark_pool":72, "option_flow":"BULLISH",      "funds":["Berkshire","Tiger"]},
+    # ── DÉFENSE ─────────────────────────────────────────────
+    {"ticker":"LMT",  "name":"Lockheed Martin",       "t212":"LMT",   "sector":"DEFENSE", "flag":"🛡️", "insider_buys":3, "dark_pool":86, "option_flow":"VERY_BULLISH", "funds":["Fidelity","Vanguard"]},
+    {"ticker":"RTX",  "name":"RTX Corporation",       "t212":"RTX",   "sector":"DEFENSE", "flag":"✈️", "insider_buys":2, "dark_pool":80, "option_flow":"BULLISH",      "funds":["Vanguard","StateStreet"]},
+    {"ticker":"AXON", "name":"Axon Enterprise",       "t212":"AXON",  "sector":"DEFENSE", "flag":"⚡", "insider_buys":3, "dark_pool":85, "option_flow":"VERY_BULLISH", "funds":["ARK","Coatue"]},
+    {"ticker":"NOC",  "name":"Northrop Grumman",      "t212":"NOC",   "sector":"DEFENSE", "flag":"🚀", "insider_buys":2, "dark_pool":78, "option_flow":"BULLISH",      "funds":["T.RowePrice","Fidelity"]},
+    # ── SANTÉ ───────────────────────────────────────────────
+    {"ticker":"LLY",  "name":"Eli Lilly & Co.",       "t212":"LLY",   "sector":"HEALTH",  "flag":"💊", "insider_buys":2, "dark_pool":89, "option_flow":"VERY_BULLISH", "funds":["Fidelity","Vanguard"]},
+    {"ticker":"ISRG", "name":"Intuitive Surgical",    "t212":"ISRG",  "sector":"HEALTH",  "flag":"🏥", "insider_buys":1, "dark_pool":77, "option_flow":"BULLISH",      "funds":["T.RowePrice","Baillie"]},
+    {"ticker":"ABBV", "name":"AbbVie Inc.",           "t212":"ABBV",  "sector":"HEALTH",  "flag":"💉", "insider_buys":2, "dark_pool":75, "option_flow":"BULLISH",      "funds":["Vanguard","Fidelity"]},
+    # ── FINANCE ─────────────────────────────────────────────
+    {"ticker":"JPM",  "name":"JPMorgan Chase",        "t212":"JPM",   "sector":"FINANCE", "flag":"🏦", "insider_buys":2, "dark_pool":82, "option_flow":"BULLISH",      "funds":["Vanguard","BlackRock"]},
+    {"ticker":"GS",   "name":"Goldman Sachs",         "t212":"GS",    "sector":"FINANCE", "flag":"💰", "insider_buys":1, "dark_pool":79, "option_flow":"BULLISH",      "funds":["Vanguard","Fidelity"]},
+    {"ticker":"V",    "name":"Visa Inc.",             "t212":"V",     "sector":"FINANCE", "flag":"💳", "insider_buys":1, "dark_pool":73, "option_flow":"NEUTRAL",       "funds":["Berkshire","Vanguard"]},
+    # ── ÉNERGIE ─────────────────────────────────────────────
+    {"ticker":"ENPH", "name":"Enphase Energy",        "t212":"ENPH",  "sector":"ENERGY",  "flag":"🔋", "insider_buys":3, "dark_pool":84, "option_flow":"VERY_BULLISH", "funds":["ARK","Coatue"]},
+    {"ticker":"NEE",  "name":"NextEra Energy",        "t212":"NEE",   "sector":"ENERGY",  "flag":"⚡", "insider_buys":2, "dark_pool":77, "option_flow":"BULLISH",      "funds":["Vanguard","BlackRock"]},
 ]
 
 DEMO = {
-    "NVDA":134.5,"PLTR":45.8,"AMD":171.2,"MSFT":440.8,"META":582.1,
-    "GOOGL":191.3,"TSLA":281.4,"COIN":342.1,"LMT":583.2,"RTX":131.4,
-    "AXON":388.7,"LLY":962.4,"ISRG":562.3,"JPM":246.3,"GS":582.4,
-    "ENPH":103.4,"NEE":83.2,"SPY":550.4,"QQQ":485.2,"GLD":240.8,
+    "NVDA":134.5, "PLTR":45.8,  "AMD":171.2,  "MSFT":440.8, "META":582.1,
+    "GOOGL":191.3,"TSLA":281.4, "AMZN":205.3, "COIN":342.1, "UBER":82.4,
+    "SNOW":195.2, "LMT":583.2,  "RTX":131.4,  "AXON":388.7, "NOC":523.1,
+    "LLY":962.4,  "ISRG":562.3, "ABBV":188.4, "JPM":246.3,  "GS":582.4,
+    "V":286.1,    "ENPH":103.4, "NEE":83.2,
 }
 
 NEWS = {
-    "NVDA":3,"PLTR":2,"LMT":2,"ENPH":2,"LLY":2,
-    "AXON":1,"AMD":1,"MSFT":1,"META":1,"GOOGL":1,
-    "JPM":1,"GS":1,"NEE":1,"RTX":1,"COIN":1,"SPY":1,"QQQ":1,
+    "NVDA":3, "PLTR":2, "LMT":2, "ENPH":2, "LLY":2,
+    "AXON":1, "AMD":1,  "MSFT":1, "META":1, "GOOGL":1,
+    "JPM":1,  "GS":1,   "NEE":1,  "RTX":1,  "COIN":1,
+    "AMZN":1, "NOC":1,  "ABBV":1, "AXON":2, "TSLA":1,
 }
 
 def fetch_price(ticker):
@@ -156,7 +165,7 @@ def compute_score(stock, md, ni):
 def format_signal(stock, md, analysis):
     price  = md["price"]      if md else DEMO.get(stock["ticker"], 100.0)
     chg    = md["change_pct"] if md else random.uniform(-1, 4)
-    levier = LEVIER.get(stock["type"], 5)
+    levier = LEVIER  # x5 fixe pour toutes les actions
     sc     = analysis["score"]
     tp     = get_tp_sl(sc, price)
     gains  = get_tp_gains_cfd(tp, CAPITAL, levier)
@@ -212,14 +221,14 @@ def send_telegram(text, parse_mode="Markdown"):
 def send_header(nb):
     now = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
     send_telegram(f"""
-🏛️ *InstitutionAI Pro — CFD Scanner*
+🏛️ *InstitutionAI Pro — CFD Actions*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🕐 `{now}`
-📊 `{nb}` CFD analysés | TP/SL synchronisés ✅
-⚙️ Actions x5 · Indices x20 · Or x20
-🔴 Insiders · ⚫ Dark Pools · 📊 Options · 🧠 TimesFM
+📊 `{nb}` actions analysées | Levier x5 fixe
+🔴 Insiders SEC · ⚫ Dark Pools · 📊 Options · 🧠 TimesFM
+💡 Actions CFD uniquement (pas d'indices, pas d'or)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 *Top signaux Smart Money + TP/SL:*
+🎯 *Meilleures actions CFD + TP/SL:*
 """.strip())
 
 def send_footer(results):
