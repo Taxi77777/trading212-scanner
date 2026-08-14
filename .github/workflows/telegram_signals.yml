@@ -1,0 +1,37 @@
+name: InstitutionAI Pro — Telegram Signals (15min)
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # Toutes les 15 minutes 24h/24
+  workflow_dispatch:          # Bouton manuel disponible
+
+concurrency:
+  group: institution-ai-signals
+  cancel-in-progress: false
+
+jobs:
+  scan-and-alert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run InstitutionAI Scanner → Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          T212_API_KEY:       ${{ secrets.T212_API_KEY }}
+          MIN_SCORE:          '75'
+          MAX_ALERTS:         '5'
+        run: python telegram_signals.py
