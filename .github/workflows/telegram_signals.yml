@@ -1,37 +1,52 @@
-name: InstitutionAI Pro — Telegram Signals (15min)
+name: Trading Scanner — Telegram Signals (15min)
 
 on:
   schedule:
-    - cron: '*/15 * * * *'   # Toutes les 15 minutes 24h/24
-  workflow_dispatch:          # Bouton manuel disponible
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
 
+# Prevent concurrent scans and duplicated alerts.
 concurrency:
-  group: institution-ai-signals
+  group: trading-scanner-15m
   cancel-in-progress: false
+
+permissions:
+  contents: write
 
 jobs:
   scan-and-alert:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.10
+      - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-          cache: 'pip'
+          python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests
+        run: python -m pip install --upgrade pip requests
 
-      - name: Run InstitutionAI Scanner → Telegram
+      - name: Run 15m market scanner
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
-          T212_API_KEY:       ${{ secrets.T212_API_KEY }}
-          MIN_SCORE:          '75'
-          MAX_ALERTS:         '5'
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MIN_SCORE: '75'
+          MAX_ALERTS: '5'
+          ALERT_COOLDOWN_MIN: '60'
+          RISK_PCT: '1.0'
         run: python telegram_signals.py
+
+      - name: Persist alert state
+        if: always()
+        run: |
+          if [ -f signal_state.json ]; then
+            git config user.name 'github-actions[bot]'
+            git config user.email 'github-actions[bot]@users.noreply.github.com'
+            git add signal_state.json
+            git diff --cached --quiet || git commit -m 'chore: update signal state [skip ci]'
+            git push || true
+          fi
