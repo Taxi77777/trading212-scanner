@@ -20,6 +20,11 @@ MIN_SCORE = int(os.getenv("MIN_SCORE", "65"))
 MAX_ALERTS = int(os.getenv("MAX_ALERTS", "5"))
 ALERT_COOLDOWN_MIN = int(os.getenv("ALERT_COOLDOWN_MIN", "60"))
 
+# IMPORTANT: the base scanner had its own default MIN_SCORE=75. Lower it here
+# so the institutional/macro overlay can actually evaluate more candidates.
+# Final Telegram alerts still have to pass MIN_SCORE after overlay adjustments.
+base.MIN_SCORE = min(55, MIN_SCORE)
+
 MACRO_SYMBOLS = ["SPY", "QQQ", "^VIX", "UUP", "TLT", "GLD", "USO"]
 SECTOR_ETFS = {
     "TECH": "XLK", "SEMIS": "SMH", "FINANCE": "XLF", "ENERGY": "XLE",
@@ -137,7 +142,8 @@ def apply_overlay(sig: base.Signal, overlay: Overlay, sector_perf: dict[str, tup
     etf = SECTOR_MAP.get(sig.symbol)
     if etf and etf in sector_perf:
         sector_ret, sector_vol = sector_perf[etf]
-        stock_ret = _change(base.fetch_15m(sig.symbol))
+        stock_data = _safe_fetch(sig.symbol)
+        stock_ret = _change(stock_data)
         relative = stock_ret - sector_ret
         if (direction > 0 and relative > 0.25) or (direction < 0 and relative < -0.25):
             score += 3; reasons.append(f"force relative vs {etf}")
@@ -194,6 +200,16 @@ def main() -> int:
             state[key] = {"sent_at": now, "price": sig.price, "score": sig.score}
             base.save_state(state); sent += 1
     log.info("Overlay scan: %d candidats -> %d alertes | %s | %s", len(signals), sent, overlay.macro_regime, overlay.inst_label)
+    if not enhanced:
+        # Never stay silent: emit a compact diagnostic after a successful scan.
+        diagnostic = (
+            "ℹ️ Trading 212 Scanner\n"
+            f"Scan OK — 0 signal final\nMacro: {overlay.macro_regime} ({overlay.macro_score:+d})\n"
+            f"Candidats techniques: {len(signals)}\n"
+            f"Seuil final: {MIN_SCORE}/100\n"
+            "Le moteur continue de surveiller les actions."
+        )
+        base.telegram_send(diagnostic)
     return 0
 
 if __name__ == "__main__":
