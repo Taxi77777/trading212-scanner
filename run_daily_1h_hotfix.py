@@ -1,23 +1,34 @@
-"""Daily + 1H production wrapper with expanded universe and robust 1H timing."""
+"""Daily + 1H production wrapper: expanded universe, relaxed timing, diagnostics."""
 from __future__ import annotations
 
 import daily_1h_longterm_scanner as scanner
 from expanded_universe import EXPANDED_SYMBOLS
 
-# Macro inputs must match the five-value unpacking in macro_regime().
 scanner.MACRO = ["SPY", "QQQ", "^VIX", "UUP", "TLT"]
-
-# Use the expanded investable universe and repair the legacy Block ticker.
+scanner.FINAL_MIN = 64
 scanner.base.SYMBOLS = list(dict.fromkeys(["XYZ" if s == "SQ" else s for s in EXPANDED_SYMBOLS]))
 scanner.NAMES["XYZ"] = "Block, Inc."
 scanner.NAMES.pop("SQ", None)
 
-# Daily remains the master filter. The 1H is a timing confirmation rather than
-# requiring a fresh breakout on the exact scan candle.
 _original_hourly_trigger = scanner.hourly_trigger
+_original_daily_master = scanner.daily_master
+_original_telegram_send = scanner.base.telegram_send
+
+DIAG = {"daily_master": 0, "daily_candidate": 0, "hourly_confirm": 0}
+
+
+def daily_master(symbol, d, spy):
+    sig = _original_daily_master(symbol, d, spy)
+    if sig is not None:
+        DIAG["daily_master"] += 1
+        if sig.score >= 58:
+            DIAG["daily_candidate"] += 1
+    return sig
+
 
 def hourly_trigger(symbol, d, master):
     if _original_hourly_trigger(symbol, d, master):
+        DIAG["hourly_confirm"] += 1
         return True
     if not d or len(d.close) < 60:
         return False
@@ -30,16 +41,29 @@ def hourly_trigger(symbol, d, master):
     if master.side == "BUY":
         trend = p > e20[-1] and e20[-1] >= e20[-5]
         continuation = p >= recent_high or (d.close[-1] > d.close[-2] > d.close[-3])
-        return trend and continuation and vr >= 0.65
-    trend = p < e20[-1] and e20[-1] <= e20[-5]
-    continuation = p <= recent_low or (d.close[-1] < d.close[-2] < d.close[-3])
-    return trend and continuation and vr >= 0.65
+        ok = trend and continuation and vr >= 0.65
+    else:
+        trend = p < e20[-1] and e20[-1] <= e20[-5]
+        continuation = p <= recent_low or (d.close[-1] < d.close[-2] < d.close[-3])
+        ok = trend and continuation and vr >= 0.65
+    if ok:
+        DIAG["hourly_confirm"] += 1
+    return ok
 
+
+def telegram_send(text):
+    if text.startswith("📈 Scan DAILY + 1H:"):
+        text += (
+            f"\n🔎 Diagnostic: Daily setups >=58 = {DIAG['daily_candidate']}"
+            f" | confirmations 1H = {DIAG['hourly_confirm']}"
+            f" | seuil final = {scanner.FINAL_MIN}"
+        )
+    return _original_telegram_send(text)
+
+
+scanner.daily_master = daily_master
 scanner.hourly_trigger = hourly_trigger
-
-# Slightly more permissive final threshold to avoid a zero-signal dead zone
-# while preserving the strict Daily candidate filter.
-scanner.FINAL_MIN = 64
+scanner.base.telegram_send = telegram_send
 
 if __name__ == "__main__":
     raise SystemExit(scanner.main())
