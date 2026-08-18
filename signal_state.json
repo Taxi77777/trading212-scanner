@@ -3,5 +3,20 @@
     "sent_at": 1787073450.4967859,
     "price": 130.1199951171875,
     "score": 73
+  },
+  "PRE-BREAKOUT:MU:SELL": {
+    "sent_at": 1787073669.0917149,
+    "price": 936.0825805664062,
+    "score": 83
+  },
+  "PRE-BREAKOUT:MRVL:SELL": {
+    "sent_at": 1787073669.0917149,
+    "price": 213.75999450683594,
+    "score": 83
+  },
+  "PRE-BREAKOUT:TSM:SELL": {
+    "sent_at": 1787073669.0917149,
+    "price": 412.8299865722656,
+    "score": 83
   }
 }
