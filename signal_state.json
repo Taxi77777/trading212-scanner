@@ -43,5 +43,20 @@
     "sent_at": 1787095488.0708327,
     "price": 0.9404299855232239,
     "score": 70
+  },
+  "FXV3:USD/CHF:BUY:SETUP": {
+    "sent_at": 1787095509.196664,
+    "price": 0.8123300075531006,
+    "score": 70
+  },
+  "FXV3:EUR/CHF:BUY:SETUP": {
+    "sent_at": 1787095509.196664,
+    "price": 0.9404199719429016,
+    "score": 70
+  },
+  "FXV3:GBP/CHF:BUY:ENTREE": {
+    "sent_at": 1787095509.196664,
+    "price": 1.0994700193405151,
+    "score": 70
   }
 }
