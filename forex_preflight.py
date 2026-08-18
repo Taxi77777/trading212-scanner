@@ -41,6 +41,7 @@ msg = (
     f"H4 construits : {h4_ok}/{len(pairs)}\n"
     f"News high impact bloquées : {news_blocked}\n"
     f"Calendrier chargé : {len(events)} événements\n"
+    f"Market data : {v7.MARKET_DATA_SOURCE}\n"
     f"Session UTC : {v7.session_name_asia_aware()}\n"
     f"Seuil SETUP : {s.SETUP_MIN} | ENTRY : {s.FINAL_MIN}\n"
     f"Échecs data : {', '.join(failed[:8]) if failed else 'aucun'}"
