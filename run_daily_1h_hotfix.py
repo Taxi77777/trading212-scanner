@@ -1,18 +1,14 @@
-"""Compatibility wrapper for the Daily + 1H scanner.
-
-Fixes legacy ticker/macros before invoking the core engine:
-- Block migrated from SQ to XYZ.
-- Macro regime currently consumes exactly SPY, QQQ, ^VIX, UUP and TLT.
-"""
+"""Compatibility wrapper for the Daily + 1H scanner."""
 from __future__ import annotations
 
 import daily_1h_longterm_scanner as scanner
+from expanded_universe import EXPANDED_SYMBOLS
 
-# Keep the engine's macro_regime unpacking consistent with the intended inputs.
+# Macro inputs must match the five-value unpacking in macro_regime().
 scanner.MACRO = ["SPY", "QQQ", "^VIX", "UUP", "TLT"]
 
-# Replace the legacy Block ticker without changing the core engine.
-scanner.base.SYMBOLS = ["XYZ" if s == "SQ" else s for s in scanner.base.SYMBOLS]
+# Use the expanded investable universe and repair the legacy Block ticker.
+scanner.base.SYMBOLS = list(dict.fromkeys(["XYZ" if s == "SQ" else s for s in EXPANDED_SYMBOLS]))
 scanner.NAMES["XYZ"] = "Block, Inc."
 scanner.NAMES.pop("SQ", None)
 
