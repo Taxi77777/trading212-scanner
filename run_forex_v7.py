@@ -8,8 +8,6 @@ import forex_ai_judge
 scanner = v6.scanner
 scanner.SETUP_MIN = 30
 scanner.FINAL_MIN = 68
-
-# Completely free, no-key market/reference sources.
 MARKET_DATA_SOURCE = free_market_data.SOURCE_NAME
 AI_SOURCE = forex_ai_judge.SOURCE_NAME
 
@@ -17,14 +15,10 @@ AI_SOURCE = forex_ai_judge.SOURCE_NAME
 def session_name_asia_aware() -> str:
     now = datetime.now(timezone.utc)
     h = now.hour + now.minute / 60
-    if 0 <= h < 7:
-        return "ASIE"
-    if 7 <= h < 12:
-        return "LONDRES"
-    if 12 <= h < 17:
-        return "LONDRES + NEW YORK"
-    if 17 <= h < 21:
-        return "NEW YORK"
+    if 0 <= h < 7: return "ASIE"
+    if 7 <= h < 12: return "LONDRES"
+    if 12 <= h < 17: return "LONDRES + NEW YORK"
+    if 17 <= h < 21: return "NEW YORK"
     return "ASIE"
 
 scanner.session_name = session_name_asia_aware
@@ -51,27 +45,21 @@ def build_signal_coherent(pair, frames, strength, macro, macro_reason, news, new
 
     if "USD" in pair:
         usd_is_base = scanner.PAIRS[pair][0] == "USD"
-        if usd_is_base and sig.side == "BUY" and sig.dxy == "BEAR":
-            return None
-        if usd_is_base and sig.side == "SELL" and sig.dxy == "BULL":
-            return None
-        if not usd_is_base and sig.side == "BUY" and sig.dxy == "BULL":
-            return None
-        if not usd_is_base and sig.side == "SELL" and sig.dxy == "BEAR":
-            return None
+        if usd_is_base and sig.side == "BUY" and sig.dxy == "BEAR": return None
+        if usd_is_base and sig.side == "SELL" and sig.dxy == "BULL": return None
+        if not usd_is_base and sig.side == "BUY" and sig.dxy == "BULL": return None
+        if not usd_is_base and sig.side == "SELL" and sig.dxy == "BEAR": return None
 
     if sig.correlation == "CONTRE":
         return None
 
-    # Optional local AI second opinion. It never creates a signal. When the
-    # model is available, only a direct contradiction can veto the signal.
     ai = forex_ai_judge.judge_signal(sig)
     setattr(sig, "ai_verdict", ai.get("verdict", "INDISPONIBLE"))
     setattr(sig, "ai_confidence", ai.get("confidence", 0))
     setattr(sig, "ai_reason", ai.get("reason", ""))
+    setattr(sig, "ai_available", bool(ai.get("available")))
     if ai.get("available") and ai.get("contradiction"):
         return None
-
     return sig
 
 scanner.build_signal = build_signal_coherent
@@ -89,23 +77,27 @@ def format_signal_medals(sig):
         text = text.replace(f"🔴 SIGNAL FOREX {sig.state}", f"🔴 {medal} — SIGNAL FOREX {sig.state}", 1)
     verdict = getattr(sig, "ai_verdict", "INDISPONIBLE")
     confidence = getattr(sig, "ai_confidence", 0)
+    reason = getattr(sig, "ai_reason", "")
     if verdict != "INDISPONIBLE":
-        text = text.replace("⚠️ Analyse uniquement", f"🤖 IA Qwen3.6 : {verdict} ({confidence}%)\n⚠️ Analyse uniquement", 1)
+        suffix = f"🤖 IA Qwen3.6 : {verdict} ({confidence}%)"
+        if reason:
+            suffix += f"\nMotif IA : {reason}"
+        text = text.replace("⚠️ Analyse uniquement", f"{suffix}\n⚠️ Analyse uniquement", 1)
+    else:
+        text = text.replace("⚠️ Analyse uniquement", "🤖 IA Qwen3.6 : NON CONNECTÉE — signal validé uniquement par le moteur quantitatif\n⚠️ Analyse uniquement", 1)
     return text
 
 scanner.format_signal = format_signal_medals
 
 _fetch_orig = scanner.fetch
-_stats = {"fetch_calls": 0, "fetch_ok": 0, "fetch_none": 0, "build_calls": 0, "build_ok": 0, "build_none": 0, "SETUP": 0, "ENTREE": 0, "AI_CONFIRME": 0, "AI_PRUDENCE": 0, "AI_INDISPONIBLE": 0}
+_stats = {"fetch_calls": 0, "fetch_ok": 0, "fetch_none": 0, "build_calls": 0, "build_ok": 0, "build_none": 0, "SETUP": 0, "ENTREE": 0, "AI_CONFIRME": 0, "AI_PRUDENCE": 0, "AI_CONTRADICTION": 0, "AI_INDISPONIBLE": 0}
 
 
 def fetch_probe(symbol, interval, range_):
     _stats["fetch_calls"] += 1
     d = _fetch_orig(symbol, interval, range_)
-    if d is None:
-        _stats["fetch_none"] += 1
-    else:
-        _stats["fetch_ok"] += 1
+    if d is None: _stats["fetch_none"] += 1
+    else: _stats["fetch_ok"] += 1
     return d
 
 
@@ -117,7 +109,8 @@ def build_probe(pair, frames, strength, macro, macro_reason, news, news_block):
     else:
         _stats["build_ok"] += 1
         _stats[sig.state] = _stats.get(sig.state, 0) + 1
-        _stats[f"AI_{getattr(sig, 'ai_verdict', 'INDISPONIBLE')}"] = _stats.get(f"AI_{getattr(sig, 'ai_verdict', 'INDISPONIBLE')}", 0) + 1
+        verdict = getattr(sig, "ai_verdict", "INDISPONIBLE")
+        _stats[f"AI_{verdict}"] = _stats.get(f"AI_{verdict}", 0) + 1
     return sig
 
 scanner.fetch = fetch_probe
@@ -137,8 +130,8 @@ if __name__ == "__main__":
         f"build retenus : {_stats['build_ok']}\n"
         f"build rejetés : {_stats['build_none']}\n"
         f"SETUP : {_stats.get('SETUP', 0)} | ENTREE : {_stats.get('ENTREE', 0)}\n"
-        f"IA : confirmés {_stats.get('AI_CONFIRME', 0)} | prudence {_stats.get('AI_PRUDENCE', 0)} | indisponible {_stats.get('AI_INDISPONIBLE', 0)}\n"
-        "Filtres de cohérence : DXY USD + corrélation CONTRADICTION\n"
+        f"IA : confirmés {_stats.get('AI_CONFIRME', 0)} | prudence {_stats.get('AI_PRUDENCE', 0)} | contradictions {_stats.get('AI_CONTRADICTION', 0)} | non connectée {_stats.get('AI_INDISPONIBLE', 0)}\n"
+        "Filtres : DXY/USD + corrélation + contrôle IA optionnel\n"
         "Diagnostic du moteur réel — aucun score artificiel ajouté."
     )
     try:
