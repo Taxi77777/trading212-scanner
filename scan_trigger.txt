@@ -1,1 +1,1 @@
-trigger: fresh daily+1h scan
+trigger: fresh daily+1h scan 2026-08-18T19:36:00+02:00
