@@ -20,10 +20,20 @@ def session_name_asia_aware() -> str:
         return "LONDRES + NEW YORK"
     if 17 <= h < 21:
         return "NEW YORK"
-    # 21:00-24:00 UTC is the Sydney/early Asia transition.
     return "ASIE"
 
 scanner.session_name = session_name_asia_aware
+
+# The base engine expects a Yahoo symbol key (e.g. EURUSD=X) in event_risk(),
+# while its main loop was passing the display label (e.g. EUR/USD).
+_event_risk_orig = scanner.event_risk
+
+def event_risk_normalized(pair, events):
+    if pair not in scanner.PAIRS:
+        pair = next((symbol for symbol, values in scanner.PAIRS.items() if values[2] == pair), pair)
+    return _event_risk_orig(pair, events)
+
+scanner.event_risk = event_risk_normalized
 
 _fetch_orig = scanner.fetch
 _build_orig = scanner.build_signal
