@@ -33,14 +33,21 @@ def _json_from_text(text: str) -> dict[str, Any] | None:
 def judge_signal(sig: Any) -> dict[str, Any]:
     """Ask local Qwen to cross-check an already-formed quantitative signal.
 
-    This is a second opinion only: it never creates a signal and never raises
-    an exception into the production scanner.
+    Second opinion only. It never creates a signal and never raises into the
+    production scanner when Ollama is unavailable.
     """
     payload = {
         "pair": getattr(sig, "pair", ""),
+        "symbol": getattr(sig, "symbol", ""),
         "side": getattr(sig, "side", ""),
         "state": getattr(sig, "state", ""),
         "score": getattr(sig, "score", 0),
+        "price": getattr(sig, "price", None),
+        "entry": getattr(sig, "price", None),
+        "sl": getattr(sig, "sl", None),
+        "tp1": getattr(sig, "tp1", None),
+        "tp2": getattr(sig, "tp2", None),
+        "rr": getattr(sig, "rr", None),
         "d1": getattr(sig, "d1", ""),
         "h4": getattr(sig, "h4", ""),
         "h1": getattr(sig, "h1", ""),
@@ -52,18 +59,17 @@ def judge_signal(sig: Any) -> dict[str, Any]:
         "liquidity": getattr(sig, "liquidity", ""),
         "correlation": getattr(sig, "correlation", ""),
         "news": getattr(sig, "news", ""),
+        "session": getattr(sig, "session", ""),
         "reasons": getattr(sig, "reasons", []),
     }
 
     system = (
-        "You are a conservative FX risk-review assistant. "
-        "You do not create trades. Review only the supplied quantitative signal. "
+        "You are a conservative FX risk-review assistant. Review only the supplied "
+        "quantitative signal. Do not create trades and do not invent missing data. "
         "Return JSON only with keys: verdict, confidence, contradiction, reason. "
-        "verdict must be one of CONFIRME, PRUDENCE, CONTRADICTION. "
-        "Use CONTRADICTION only when supplied evidence directly conflicts with the trade direction. "
-        "Do not invent news, prices, indicators or data."
+        "verdict must be CONFIRME, PRUDENCE or CONTRADICTION. "
+        "Use CONTRADICTION only when supplied evidence directly conflicts with the trade direction."
     )
-    user = json.dumps(payload, ensure_ascii=False)
 
     try:
         response = requests.post(
@@ -75,7 +81,7 @@ def judge_signal(sig: Any) -> dict[str, Any]:
                 "options": {"temperature": 0},
                 "messages": [
                     {"role": "system", "content": system},
-                    {"role": "user", "content": user},
+                    {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
                 ],
             },
             timeout=OLLAMA_TIMEOUT,
