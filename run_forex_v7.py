@@ -2,13 +2,17 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import run_forex_v6 as v6
+import forex_market_data
 
 scanner = v6.scanner
 scanner.SETUP_MIN = 30
 scanner.FINAL_MIN = 68
 
-# Forex is open around the clock on weekdays. Keep the Asian/Sydney transition
-# active so the scanner does not silently stop overnight UTC.
+# Prefer a dedicated Forex market-data feed when TWELVE_DATA_API_KEY is
+# configured; otherwise keep the existing Yahoo path as a safe fallback.
+MARKET_DATA_SOURCE = forex_market_data.install_fetch_override(scanner)
+
+
 def session_name_asia_aware() -> str:
     now = datetime.now(timezone.utc)
     h = now.hour + now.minute / 60
@@ -24,9 +28,8 @@ def session_name_asia_aware() -> str:
 
 scanner.session_name = session_name_asia_aware
 
-# Normalize display labels (EUR/USD) to Yahoo symbols (EURUSD=X) before
-# calling the base calendar-risk function.
 _event_risk_orig = scanner.event_risk
+
 
 def event_risk_normalized(pair, events):
     if pair not in scanner.PAIRS:
@@ -36,18 +39,17 @@ def event_risk_normalized(pair, events):
         label = "Aucun événement high impact dans les 30 prochaines minutes"
     return label, blocked
 
+
 scanner.event_risk = event_risk_normalized
 
-# Hard coherence filters. A signal is rejected when the macro/correlation
-# layer directly contradicts the traded USD direction.
 _build_orig = scanner.build_signal
+
 
 def build_signal_coherent(pair, frames, strength, macro, macro_reason, news, news_block):
     sig = _build_orig(pair, frames, strength, macro, macro_reason, news, news_block)
     if sig is None:
         return None
 
-    # USD pairs: DXY direction must agree with the USD leg of the trade.
     if "USD" in pair:
         usd_is_base = scanner.PAIRS[pair][0] == "USD"
         if usd_is_base and sig.side == "BUY" and sig.dxy == "BEAR":
@@ -59,18 +61,14 @@ def build_signal_coherent(pair, frames, strength, macro, macro_reason, news, new
         if not usd_is_base and sig.side == "SELL" and sig.dxy == "BEAR":
             return None
 
-    # A negative correlation confirmation is treated as a contradiction,
-    # not as just another score component.
     if sig.correlation == "CONTRE":
         return None
 
     return sig
 
+
 scanner.build_signal = build_signal_coherent
 
-# Medal ranking is applied to the candidate order used by the production
-# engine (already sorted by score before formatting). This gives clear
-# differentiation without inventing extra scores.
 _format_orig = scanner.format_signal
 _rank = {"n": 0}
 
@@ -83,6 +81,7 @@ def format_signal_medals(sig):
         text = text.replace(f"🟢 SIGNAL FOREX {sig.state}", f"🟢 {medal} — SIGNAL FOREX {sig.state}", 1)
         text = text.replace(f"🔴 SIGNAL FOREX {sig.state}", f"🔴 {medal} — SIGNAL FOREX {sig.state}", 1)
     return text
+
 
 scanner.format_signal = format_signal_medals
 
@@ -110,14 +109,17 @@ def build_probe(pair, frames, strength, macro, macro_reason, news, news_block):
         _stats[sig.state] = _stats.get(sig.state, 0) + 1
     return sig
 
+
 scanner.fetch = fetch_probe
 scanner.build_signal = build_probe
+
 
 if __name__ == "__main__":
     _rank["n"] = 0
     rc = scanner.main()
     msg = (
         "🔎 DIAGNOSTIC FOREX V7\n"
+        f"Market data : {MARKET_DATA_SOURCE}\n"
         f"Session : {session_name_asia_aware()}\n"
         f"fetch OK : {_stats['fetch_ok']} / {_stats['fetch_calls']}\n"
         f"fetch KO : {_stats['fetch_none']}\n"
