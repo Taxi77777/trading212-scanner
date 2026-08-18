@@ -33,7 +33,6 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
           FOREX_NEWS_BLOCK_MIN: '30'
           FOREX_CALENDAR_URL: 'https://nfs.faireconomy.media/ff_calendar_thisweek.json'
         run: python forex_preflight.py
@@ -41,7 +40,6 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
           FOREX_MAX_ALERTS: '3'
           FOREX_COOLDOWN_MIN: '240'
           FOREX_NEWS_BLOCK_MIN: '30'
