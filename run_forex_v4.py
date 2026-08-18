@@ -3,7 +3,6 @@ from __future__ import annotations
 import forex_intraday_scanner_v3 as scanner
 import central_bank_rates
 
-# Wider FX universe: majors + liquid crosses.
 scanner.PAIRS = {
     "EURUSD=X": ("EUR", "USD", "EUR/USD"), "GBPUSD=X": ("GBP", "USD", "GBP/USD"),
     "USDJPY=X": ("USD", "JPY", "USD/JPY"), "USDCHF=X": ("USD", "CHF", "USD/CHF"),
@@ -19,7 +18,6 @@ scanner.PAIRS = {
     "NZDCAD=X": ("NZD", "CAD", "NZD/CAD"), "NZDCHF=X": ("NZD", "CHF", "NZD/CHF"),
 }
 
-# Allow strong multi-factor setups to appear while preserving a stricter entry score.
 scanner.SETUP_MIN = 54
 scanner.FINAL_MIN = 68
 
@@ -31,7 +29,9 @@ def build_signal_with_rates(pair, frames, strength, macro, macro_reason, news, n
     sig = _original_build(pair, frames, strength, macro, macro_reason, news, news_block)
     if sig is None:
         return None
+
     assessment, diff = central_bank_rates.assessment(sig.pair, sig.side, _rates)
+
     if assessment == "TAUX_FORTEMENT_FAVORABLE":
         sig.score = min(100, sig.score + 4)
         sig.reasons.append("différentiel de taux fortement favorable")
@@ -41,13 +41,20 @@ def build_signal_with_rates(pair, frames, strength, macro, macro_reason, news, n
     elif assessment == "TAUX_CONTRE":
         sig.reasons.append("différentiel de taux contraire")
     elif assessment == "TAUX_FORTEMENT_CONTRE":
-        sig.score = max(0, sig.score - 4)
-        sig.reasons.append("différentiel de taux fortement contraire")
-    sig.reasons.append(f"Taux: {assessment} ({diff:+.2f} pp)" if diff is not None else "Taux: inconnu")
+        return None
+
+    # The rate overlay is applied before final signal classification.
+    if sig.m15 == "CONFIRME" and sig.score >= scanner.FINAL_MIN:
+        sig.state = "ENTREE"
+
+    sig.reasons.append(
+        f"Taux: {assessment} ({diff:+.2f} pp)" if diff is not None else "Taux: inconnu"
+    )
     return sig
 
 
 scanner.build_signal = build_signal_with_rates
+
 
 if __name__ == "__main__":
     raise SystemExit(scanner.main())
