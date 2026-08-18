@@ -8,11 +8,11 @@ scanner = v6.scanner
 scanner.SETUP_MIN = 30
 scanner.FINAL_MIN = 68
 
-# Prefer a dedicated Forex market-data feed when TWELVE_DATA_API_KEY is
-# configured; otherwise keep the existing Yahoo path as a safe fallback.
-MARKET_DATA_SOURCE = forex_market_data.install_fetch_override(scanner)
+# Completely free, no-key market/reference sources.
+MARKET_DATA_SOURCE = "Yahoo Finance intraday + Frankfurter/ECB reference + Forex Factory calendar"
 
-
+# Forex is open around the clock on weekdays. Keep the Asian/Sydney transition
+# active so the scanner does not silently stop overnight UTC.
 def session_name_asia_aware() -> str:
     now = datetime.now(timezone.utc)
     h = now.hour + now.minute / 60
@@ -28,8 +28,9 @@ def session_name_asia_aware() -> str:
 
 scanner.session_name = session_name_asia_aware
 
+# Normalize display labels (EUR/USD) to Yahoo symbols (EURUSD=X) before
+# calling the base calendar-risk function.
 _event_risk_orig = scanner.event_risk
-
 
 def event_risk_normalized(pair, events):
     if pair not in scanner.PAIRS:
@@ -39,11 +40,11 @@ def event_risk_normalized(pair, events):
         label = "Aucun événement high impact dans les 30 prochaines minutes"
     return label, blocked
 
-
 scanner.event_risk = event_risk_normalized
 
+# Hard coherence filters. A signal is rejected when the macro/correlation
+# layer directly contradicts the traded USD direction.
 _build_orig = scanner.build_signal
-
 
 def build_signal_coherent(pair, frames, strength, macro, macro_reason, news, news_block):
     sig = _build_orig(pair, frames, strength, macro, macro_reason, news, news_block)
@@ -66,12 +67,12 @@ def build_signal_coherent(pair, frames, strength, macro, macro_reason, news, new
 
     return sig
 
-
 scanner.build_signal = build_signal_coherent
 
+# Medal ranking is applied to the candidate order used by the production
+# engine (already sorted by score before formatting).
 _format_orig = scanner.format_signal
 _rank = {"n": 0}
-
 
 def format_signal_medals(sig):
     medal = "🥇 OR" if _rank["n"] == 0 else "🥈 ARGENT" if _rank["n"] == 1 else "🥉 BRONZE" if _rank["n"] == 2 else ""
@@ -82,12 +83,10 @@ def format_signal_medals(sig):
         text = text.replace(f"🔴 SIGNAL FOREX {sig.state}", f"🔴 {medal} — SIGNAL FOREX {sig.state}", 1)
     return text
 
-
 scanner.format_signal = format_signal_medals
 
 _fetch_orig = scanner.fetch
 _stats = {"fetch_calls": 0, "fetch_ok": 0, "fetch_none": 0, "build_calls": 0, "build_ok": 0, "build_none": 0, "SETUP": 0, "ENTREE": 0}
-
 
 def fetch_probe(symbol, interval, range_):
     _stats["fetch_calls"] += 1
@@ -97,7 +96,6 @@ def fetch_probe(symbol, interval, range_):
     else:
         _stats["fetch_ok"] += 1
     return d
-
 
 def build_probe(pair, frames, strength, macro, macro_reason, news, news_block):
     _stats["build_calls"] += 1
@@ -109,10 +107,8 @@ def build_probe(pair, frames, strength, macro, macro_reason, news, news_block):
         _stats[sig.state] = _stats.get(sig.state, 0) + 1
     return sig
 
-
 scanner.fetch = fetch_probe
 scanner.build_signal = build_probe
-
 
 if __name__ == "__main__":
     _rank["n"] = 0
