@@ -31,6 +31,9 @@ jobs:
       - name: Install dependencies
         run: python -m pip install --upgrade pip requests
 
+      - name: Validate scanner code
+        run: python -m py_compile telegram_signals.py institutional_macro_scanner.py scanner_v2.py
+
       - name: Telegram connectivity diagnostic
         if: github.event_name == 'workflow_dispatch'
         env:
