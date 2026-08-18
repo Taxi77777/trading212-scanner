@@ -62,7 +62,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DAILY_CANDIDATE_MIN: '58'
-          DAILY_FINAL_MIN: '68'
+          DAILY_FINAL_MIN: '64'
           MAX_ALERTS: '5'
           ALERT_COOLDOWN_MIN: '1440'
           RISK_PCT: '1.0'
