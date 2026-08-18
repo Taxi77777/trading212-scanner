@@ -1,10 +1,29 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import run_forex_v6 as v6
 
 scanner = v6.scanner
 scanner.SETUP_MIN = 30
 scanner.FINAL_MIN = 68
+
+# Forex is open around the clock on weekdays. The previous engine blocked
+# every setup from 21:00-07:00 UTC, which silently disabled the Asian session.
+def session_name_asia_aware() -> str:
+    now = datetime.now(timezone.utc)
+    h = now.hour + now.minute / 60
+    if 0 <= h < 7:
+        return "ASIE"
+    if 7 <= h < 12:
+        return "LONDRES"
+    if 12 <= h < 17:
+        return "LONDRES + NEW YORK"
+    if 17 <= h < 21:
+        return "NEW YORK"
+    # 21:00-24:00 UTC is the Sydney/early Asia transition.
+    return "ASIE"
+
+scanner.session_name = session_name_asia_aware
 
 _fetch_orig = scanner.fetch
 _build_orig = scanner.build_signal
@@ -36,6 +55,7 @@ if __name__ == "__main__":
     rc = scanner.main()
     msg = (
         "🔎 DIAGNOSTIC FOREX V7\n"
+        f"Session : {session_name_asia_aware()}\n"
         f"fetch OK : {_stats['fetch_ok']} / {_stats['fetch_calls']}\n"
         f"fetch KO : {_stats['fetch_none']}\n"
         f"build appels : {_stats['build_calls']}\n"
