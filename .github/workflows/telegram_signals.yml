@@ -4,6 +4,8 @@ on:
   schedule:
     - cron: '*/15 * * * *'
   workflow_dispatch:
+  push:
+    branches: [main]
 
 concurrency:
   group: trading-scanner-15m
@@ -28,6 +30,29 @@ jobs:
 
       - name: Install dependencies
         run: python -m pip install --upgrade pip requests
+
+      - name: Telegram connectivity diagnostic
+        if: github.event_name != 'schedule'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python - <<'PY'
+          import os, requests
+          token = os.getenv('TELEGRAM_BOT_TOKEN')
+          chat_id = os.getenv('TELEGRAM_CHAT_ID')
+          if not token or not chat_id:
+              raise SystemExit('TELEGRAM_BOT_TOKEN ou TELEGRAM_CHAT_ID manquant dans GitHub Secrets')
+          r = requests.get(f'https://api.telegram.org/bot{token}/getMe', timeout=15)
+          r.raise_for_status()
+          r = requests.post(
+              f'https://api.telegram.org/bot{token}/sendMessage',
+              json={'chat_id': chat_id, 'text': '✅ Trading 212 Scanner : GitHub Actions + Telegram OK'},
+              timeout=15,
+          )
+          r.raise_for_status()
+          print('Telegram diagnostic OK')
+          PY
 
       - name: Run 15m macro + institutional scanner
         env:
