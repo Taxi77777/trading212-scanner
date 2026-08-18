@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import run_forex_v6 as v6
-import forex_market_data
+import free_market_data
 
 scanner = v6.scanner
 scanner.SETUP_MIN = 30
 scanner.FINAL_MIN = 68
 
 # Completely free, no-key market/reference sources.
-MARKET_DATA_SOURCE = "Yahoo Finance intraday + Frankfurter/ECB reference + Forex Factory calendar"
+MARKET_DATA_SOURCE = free_market_data.SOURCE_NAME
 
 # Forex is open around the clock on weekdays. Keep the Asian/Sydney transition
 # active so the scanner does not silently stop overnight UTC.
@@ -51,6 +51,7 @@ def build_signal_coherent(pair, frames, strength, macro, macro_reason, news, new
     if sig is None:
         return None
 
+    # USD pairs: DXY direction must agree with the USD leg of the trade.
     if "USD" in pair:
         usd_is_base = scanner.PAIRS[pair][0] == "USD"
         if usd_is_base and sig.side == "BUY" and sig.dxy == "BEAR":
@@ -62,6 +63,8 @@ def build_signal_coherent(pair, frames, strength, macro, macro_reason, news, new
         if not usd_is_base and sig.side == "SELL" and sig.dxy == "BEAR":
             return None
 
+    # A negative correlation confirmation is treated as a contradiction,
+    # not as just another score component.
     if sig.correlation == "CONTRE":
         return None
 
@@ -70,9 +73,11 @@ def build_signal_coherent(pair, frames, strength, macro, macro_reason, news, new
 scanner.build_signal = build_signal_coherent
 
 # Medal ranking is applied to the candidate order used by the production
-# engine (already sorted by score before formatting).
+# engine (already sorted by score before formatting). This gives clear
+# differentiation without inventing extra scores.
 _format_orig = scanner.format_signal
 _rank = {"n": 0}
+
 
 def format_signal_medals(sig):
     medal = "🥇 OR" if _rank["n"] == 0 else "🥈 ARGENT" if _rank["n"] == 1 else "🥉 BRONZE" if _rank["n"] == 2 else ""
@@ -88,6 +93,7 @@ scanner.format_signal = format_signal_medals
 _fetch_orig = scanner.fetch
 _stats = {"fetch_calls": 0, "fetch_ok": 0, "fetch_none": 0, "build_calls": 0, "build_ok": 0, "build_none": 0, "SETUP": 0, "ENTREE": 0}
 
+
 def fetch_probe(symbol, interval, range_):
     _stats["fetch_calls"] += 1
     d = _fetch_orig(symbol, interval, range_)
@@ -96,6 +102,7 @@ def fetch_probe(symbol, interval, range_):
     else:
         _stats["fetch_ok"] += 1
     return d
+
 
 def build_probe(pair, frames, strength, macro, macro_reason, news, news_block):
     _stats["build_calls"] += 1
@@ -115,8 +122,8 @@ if __name__ == "__main__":
     rc = scanner.main()
     msg = (
         "🔎 DIAGNOSTIC FOREX V7\n"
-        f"Market data : {MARKET_DATA_SOURCE}\n"
         f"Session : {session_name_asia_aware()}\n"
+        f"Market data : {MARKET_DATA_SOURCE}\n"
         f"fetch OK : {_stats['fetch_ok']} / {_stats['fetch_calls']}\n"
         f"fetch KO : {_stats['fetch_none']}\n"
         f"build appels : {_stats['build_calls']}\n"
