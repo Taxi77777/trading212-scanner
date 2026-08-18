@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: python -m pip install --upgrade pip requests
       - name: Validate Forex scanners
-        run: python -m py_compile forex_intraday_scanner.py forex_intraday_scanner_v2.py forex_intraday_scanner_v3.py run_forex_v3.py run_forex_hotfix.py telegram_signals.py
+        run: python -m py_compile forex_intraday_scanner.py forex_intraday_scanner_v2.py forex_intraday_scanner_v3.py run_forex_v3.py run_forex_v3_rate_overlay.py central_bank_rates.py run_forex_hotfix.py telegram_signals.py
       - name: Run Forex v3 production scanner
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -39,7 +39,7 @@ jobs:
           FOREX_COOLDOWN_MIN: '240'
           FOREX_NEWS_BLOCK_MIN: '30'
           FOREX_CALENDAR_URL: 'https://nfs.faireconomy.media/ff_calendar_thisweek.json'
-        run: python run_forex_v3.py
+        run: python run_forex_v3_rate_overlay.py
       - name: Persist scanner state
         if: always()
         run: |
