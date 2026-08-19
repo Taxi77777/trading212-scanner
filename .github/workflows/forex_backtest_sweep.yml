@@ -1,0 +1,47 @@
+name: Forex Backtest — balayage horizon du stop / tendance
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'forex_backtest_sweep.py'
+      - '.github/workflows/forex_backtest_sweep.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: forex-backtest-sweep
+  cancel-in-progress: true
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+      - name: Validate
+        run: python -m py_compile forex_backtest_sweep.py forex_backtest_v2.py forex_intraday_scanner_v3.py run_forex_v5.py
+      - name: Run sweep
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: python forex_backtest_sweep.py
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forex-backtest-sweep
+          path: backtest_sweep.json
+          if-no-files-found: warn
+      - name: Summary
+        if: always()
+        run: python forex_backtest_sweep_summary.py
