@@ -1,0 +1,1 @@
+Trigger Forex scanner after EUR/USD event-risk mapping fix.
