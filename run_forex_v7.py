@@ -79,12 +79,12 @@ def format_signal_medals(sig):
     confidence = getattr(sig, "ai_confidence", 0)
     reason = getattr(sig, "ai_reason", "")
     if verdict != "INDISPONIBLE":
-        suffix = f"🤖 IA Qwen3.6 : {verdict} ({confidence}%)"
+        suffix = f"🤖 IA Cloudflare Qwen3 : {verdict} ({confidence}%)"
         if reason:
             suffix += f"\nMotif IA : {reason}"
         text = text.replace("⚠️ Analyse uniquement", f"{suffix}\n⚠️ Analyse uniquement", 1)
     else:
-        text = text.replace("⚠️ Analyse uniquement", "🤖 IA Qwen3.6 : NON CONNECTÉE — signal validé uniquement par le moteur quantitatif\n⚠️ Analyse uniquement", 1)
+        text = text.replace("⚠️ Analyse uniquement", "🤖 IA Cloudflare Qwen3 : NON CONNECTÉE — signal validé uniquement par le moteur quantitatif\n⚠️ Analyse uniquement", 1)
     return text
 
 scanner.format_signal = format_signal_medals
