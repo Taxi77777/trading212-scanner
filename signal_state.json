@@ -118,5 +118,20 @@
     "sent_at": 1787101858.3366,
     "price": 0.5867167711257935,
     "score": 48
+  },
+  "FXV3:GBP/AUD:BUY:SETUP": {
+    "sent_at": 1787102204.450052,
+    "price": 1.9122099876403809,
+    "score": 36
+  },
+  "FXV3:EUR/AUD:SELL:SETUP": {
+    "sent_at": 1787102204.450052,
+    "price": 1.6360700130462646,
+    "score": 42
+  },
+  "FXV3:EUR/GBP:SELL:SETUP": {
+    "sent_at": 1787102204.450052,
+    "price": 0.8555200099945068,
+    "score": 40
   }
 }
