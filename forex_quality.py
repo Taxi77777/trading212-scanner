@@ -20,9 +20,17 @@ Neither function can create a signal, raise a score above what the engine
 produced, or lower a threshold.
 """
 
+import os
 from typing import Any
 
-__all__ = ["coherence", "quality", "medal", "COHERENT", "MITIGE", "INCOHERENT"]
+import forex_symbols
+
+__all__ = ["coherence", "quality", "medal", "haven_conflict",
+           "COHERENT", "MITIGE", "INCOHERENT"]
+
+# Same defaults as the scanner; read from the environment so both stay in sync.
+HAVEN_CCY = tuple(c.strip() for c in os.getenv("FOREX_HAVEN_CCY", "JPY,CHF").split(",") if c.strip())
+REGIME_VETO = os.getenv("FOREX_REGIME_VETO", "1") not in ("0", "false", "False", "")
 
 COHERENT = "COHERENT"
 MITIGE = "MITIGE"
@@ -63,9 +71,37 @@ def _strength_delta(sig: Any) -> float:
     return _parse_delta(getattr(sig, "strength", "")) or 0.0
 
 
+def haven_conflict(sig: Any) -> str | None:
+    """Is this trade betting against safe havens while they are being bought?
+
+    Selling JPY or CHF into an intraday risk-off move is fighting the dominant
+    flow, and it is the failure that produced ten losing alerts on 19/08/2026.
+    Haven-versus-haven trades (CHF/JPY) are exempt: the regime says nothing
+    about which of the two wins.
+    """
+    label = str(getattr(sig, "regime_intraday", "") or "").upper()
+    if not label:
+        return None
+    parts = forex_symbols.split(getattr(sig, "symbol", "") or getattr(sig, "pair", ""))
+    if not parts:
+        return None
+    base, quote = parts
+    long_base = str(getattr(sig, "side", "")).upper() == "BUY"
+    sold = base if (base in HAVEN_CCY and not long_base) else (quote if (quote in HAVEN_CCY and long_base) else None)
+    bought = base if (base in HAVEN_CCY and long_base) else (quote if (quote in HAVEN_CCY and not long_base) else None)
+    if sold and bought:
+        return None  # haven vs haven — the regime does not arbitrate
+    if sold and "RISK-OFF" in label:
+        return f"vend {sold} en plein risk-off intraday"
+    if bought and "RISK-ON" in label:
+        return f"achète {bought} en plein risk-on intraday"
+    return None
+
+
 def coherence(sig: Any) -> dict[str, Any]:
     """Return ``{verdict, score, pro, contra, notes}`` for *sig*."""
     sign = _side_sign(getattr(sig, "side", ""))
+    conflict = haven_conflict(sig)
     pro: list[str] = []
     contra: list[str] = []
     pro_weight = 0.0
@@ -202,8 +238,21 @@ def coherence(sig: Any) -> dict[str, Any]:
         contra_weight += 2.0
         contra.append("news high impact imminente")
 
+    if conflict:
+        contra_weight += 4.0
+        contra.append(conflict)
+
     total = pro_weight + contra_weight
     score = int(round(100 * pro_weight / total)) if total else 50
+
+    if conflict and REGIME_VETO:
+        # A single, explicit veto — not a "one indicator disagrees" rule. The
+        # trade is on the wrong side of the flow that is actually running.
+        return {
+            "verdict": INCOHERENT, "score": score, "pro": pro, "contra": contra,
+            "pro_weight": round(pro_weight, 2), "contra_weight": round(contra_weight, 2),
+            "veto": conflict,
+        }
 
     if contra_weight >= CONTRA_WEIGHT_BLOCK and len(contra) >= CONTRA_FACTORS_BLOCK:
         verdict = INCOHERENT

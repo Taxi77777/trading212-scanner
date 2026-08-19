@@ -51,6 +51,14 @@ CALENDAR_URL = os.getenv("FOREX_CALENDAR_URL", "")
 # every wrapper built on it (v4 taux, v7, backtest) — stays unchanged.
 INTRADAY_STRENGTH: dict[str, float] = {}
 
+# Intraday risk regime, derived from the FX market itself. Equity/VIX proxies
+# are unusable here: they are closed during the Asian and early London
+# sessions, exactly when the scanner keeps trading.
+HAVEN_CCY = tuple(os.getenv("FOREX_HAVEN_CCY", "JPY,CHF").split(","))
+RISK_CCY = tuple(os.getenv("FOREX_RISK_CCY", "AUD,NZD,CAD").split(","))
+REGIME_MIN = float(os.getenv("FOREX_REGIME_MIN", "0.10"))
+INTRADAY_REGIME: dict[str, object] = {}
+
 DIAG: dict[str, int] = {}
 DIAG_DETAIL: dict[str, str] = {}
 
@@ -99,6 +107,7 @@ class FxSignal:
     news: str
     reasons: list[str]
     strength_intraday: str = ""
+    regime_intraday: str = ""
 
 
 def fetch(symbol: str, interval: str, range_: str) -> Bars | None:
@@ -262,6 +271,44 @@ def intraday_strength(m15_by_symbol: dict[str, Bars | None]) -> dict[str, float]
     return {k: mean(v) for k, v in out.items() if v}
 
 
+def intraday_risk_regime(strength: dict[str, float]) -> tuple[str, float]:
+    """Are safe havens being bought or sold *right now*?
+
+    ``macro_regime`` reads DXY/VIX/SPY/US10Y on daily bars, so it describes the
+    last few weeks and is blind to an intraday risk shift. Measuring haven
+    currencies against commodity currencies uses the FX market itself, which
+    trades 24/5.
+
+    Returns ``(label, score)``; a positive score means havens are outperforming,
+    i.e. risk-off.
+    """
+    havens = [strength[c] for c in HAVEN_CCY if c in strength]
+    risky = [strength[c] for c in RISK_CCY if c in strength]
+    if not havens or not risky:
+        return "INCONNU", 0.0
+    score = mean(havens) - mean(risky)
+    if score >= REGIME_MIN:
+        return "RISK-OFF INTRADAY", score
+    if score <= -REGIME_MIN:
+        return "RISK-ON INTRADAY", score
+    return "NEUTRE INTRADAY", score
+
+
+def haven_leg(pair: object, side: str) -> tuple[str | None, str | None]:
+    """Return ``(haven_being_sold, haven_being_bought)`` for this trade."""
+    parts = fxsym.split(pair)
+    if not parts:
+        return None, None
+    base, quote = parts
+    long_base = str(side).upper() == "BUY"
+    sold = bought = None
+    if base in HAVEN_CCY:
+        (bought := base) if long_base else (sold := base)
+    if quote in HAVEN_CCY:
+        (sold := quote) if long_base else (bought := quote)
+    return sold, bought
+
+
 def liquidity_state(m15: Bars, d1: Bars) -> tuple[str, int]:
     if not m15 or not d1 or len(m15.close) < 21 or len(d1.high) < 2:
         return "INCONNU", 0
@@ -398,6 +445,8 @@ def build_signal(pair: object, frames: dict[str, Bars | None], strength: dict[st
     td, th4, th1 = trend(d1), trend(h4), trend(h1)
     strong = strength.get(a, 0) - strength.get(b, 0)
     intra = INTRADAY_STRENGTH.get(a, 0.0) - INTRADAY_STRENGTH.get(b, 0.0)
+    regime_label = str(INTRADAY_REGIME.get("label", "") or "")
+    regime_score = float(INTRADAY_REGIME.get("score", 0.0) or 0.0)
     dxy_r = ret(frames.get(DXY), 20)
     dxy = "BULL" if dxy_r > 1.5 else "BEAR" if dxy_r < -1.5 else "NEUTRAL"
     long = short = 0; lr, sr = [], []
@@ -473,7 +522,8 @@ def build_signal(pair: object, frames: dict[str, Bars | None], strength: dict[st
                     "BULLISH" if th1 > 0 else "BEARISH" if th1 < 0 else "MIXTE",
                     "CONFIRME" if trigger else "EN_ATTENTE",
                     dxy, macro, f"{a} {strong:+.1f} vs {b}", vol, sess, liq_label, corr_label, news, reasons,
-                    f"{a} {intra:+.2f}% vs {b} (4-24h)" if INTRADAY_STRENGTH else "")
+                    f"{a} {intra:+.2f}% vs {b} (4-24h)" if INTRADAY_STRENGTH else "",
+                    f"{regime_label} ({regime_score:+.2f})" if regime_label else "")
 
 
 def price_fmt(pair: str, value: float) -> str:
@@ -515,6 +565,8 @@ def format_signal(s: FxSignal) -> str:
     ]
     if getattr(s, "strength_intraday", ""):
         lines.append(f"Force intraday : {s.strength_intraday}")
+    if getattr(s, "regime_intraday", ""):
+        lines.append(f"Régime intraday : {s.regime_intraday}")
     lines += [
         f"Volatilité : {s.vol_regime}",
         f"Liquidité : {s.liquidity}",
@@ -595,6 +647,10 @@ def main() -> int:
     strength = currency_strength({s: data[s].get("d1") for s in pairs})
     INTRADAY_STRENGTH.clear()
     INTRADAY_STRENGTH.update(intraday_strength({s: data[s].get("m15") for s in pairs}))
+    _regime_label, _regime_score = intraday_risk_regime(INTRADAY_STRENGTH)
+    INTRADAY_REGIME.clear()
+    INTRADAY_REGIME.update({"label": _regime_label, "score": _regime_score})
+    LOG.info("Régime intraday: %s (%+.3f)", _regime_label, _regime_score)
     macro, macro_reason = macro_regime(market)
     events = calendar_events()
     candidates = []

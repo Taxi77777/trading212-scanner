@@ -47,7 +47,11 @@ AI_SOURCE = forex_ai_judge.SOURCE_NAME
 AI_MAX_CALLS = int(os.getenv("FOREX_AI_MAX_CALLS", str(2 * scanner.MAX_ALERTS)))
 AI_FAILURES_BEFORE_OFFLINE = int(os.getenv("FOREX_AI_FAILURES_OFFLINE", "2"))
 # Max alerts that may express the same directional bet on one currency.
-MAX_PER_CURRENCY = int(os.getenv("FOREX_MAX_PER_CCY", "1"))
+# With MAX_ALERTS = 3 and eight currencies, a cap of 1 is close to unsatisfiable:
+# every pair carries two legs, so one alert already reserves two of them. A cap
+# of 2 still forbids "all three alerts are the same bet" while leaving room for
+# a genuine second expression of a strong view.
+MAX_PER_CURRENCY = int(os.getenv("FOREX_MAX_PER_CCY", "2"))
 
 STATS: dict[str, int] = {}
 
@@ -185,7 +189,8 @@ def rank_candidates(candidates: list) -> list:
         sig.coherence_detail = coherence
         _bump(f"coherence_{coherence['verdict']}")
         if coherence["verdict"] == forex_quality.INCOHERENT:
-            scanner.diag_note(sig.symbol, "incoherence_multi_facteurs")
+            reason = "veto_regime_refuge" if coherence.get("veto") else "incoherence_multi_facteurs"
+            scanner.diag_note(sig.symbol, reason)
             continue
         survivors.append((sig, coherence))
 
@@ -299,6 +304,7 @@ def diagnostic_message(ai_report: dict | None = None) -> str:
         f"News high impact bloquante : {d('news_bloquante')}",
         f"Incohérence multi-facteurs : {d('incoherence_multi_facteurs')}",
         f"Exposition dupliquée sur une devise : {d('exposition_dupliquee')}",
+        f"Veto régime refuge intraday : {d('veto_regime_refuge')}",
         f"Contradiction IA : {d('contradiction_ia')}",
         f"Cooldown actif : {d('cooldown')}",
         f"Hors budget de revue IA : {d('hors_budget_ia')}",
