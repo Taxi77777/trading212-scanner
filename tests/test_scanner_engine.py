@@ -295,3 +295,17 @@ class TestNoHumanLabelDependency(unittest.TestCase):
         expected = cb.assessment("EUR/USD", "BUY", rates)
         for spelling in ("EURUSD=X", "EURUSD", "eur/usd"):
             self.assertEqual(cb.assessment(spelling, "BUY", rates), expected, spelling)
+
+
+class TestSuiteIsHermetic(unittest.TestCase):
+    def test_rate_overlay_is_neutralised(self):
+        import run_forex_v4
+
+        self.assertEqual(run_forex_v4.rates(), {},
+                         "les tests ne doivent jamais dépendre des taux réels")
+        self.assertIn("hors ligne", run_forex_v4.rate_source())
+
+    def test_rate_overlay_is_neutral_when_rates_are_unknown(self):
+        import central_bank_rates as cb
+
+        self.assertEqual(cb.assessment("EUR/USD", "BUY", {}), ("TAUX_INCONNU", None))
