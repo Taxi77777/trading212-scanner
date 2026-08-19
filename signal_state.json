@@ -90,9 +90,9 @@
     "score": 59
   },
   "FXV3:AUD/JPY:BUY:SETUP": {
-    "sent_at": 1787101766.4997349,
-    "price": 112.8489990234375,
-    "score": 59
+    "sent_at": 1787145850.5358307,
+    "price": 112.7490005493164,
+    "score": 61
   },
   "FXV3:GBP/JPY:BUY:SETUP": {
     "sent_at": 1787133426.8707523,
@@ -170,8 +170,13 @@
     "score": 67
   },
   "FXV3:GBP/CAD:BUY:SETUP": {
-    "sent_at": 1787129582.412861,
-    "price": 1.8820300102233887,
-    "score": 38
+    "sent_at": 1787145850.5358307,
+    "price": 1.8841999769210815,
+    "score": 58
+  },
+  "FXV3:NZD/USD:BUY:ENTREE": {
+    "sent_at": 1787145850.5358307,
+    "price": 0.5919961929321289,
+    "score": 78
   }
 }
