@@ -48,16 +48,19 @@ def _side_sign(side: object) -> int:
     return 1 if str(side or "").upper() == "BUY" else -1
 
 
-def _strength_delta(sig: Any) -> float:
-    """Parse the ``"EUR +1.4 vs USD"`` strength label back to a number."""
-    text = str(getattr(sig, "strength", "") or "")
-    for token in text.replace("vs", " ").split():
+def _parse_delta(text: object) -> float | None:
+    """Parse ``"EUR +1.4 vs USD"`` / ``"CAD +0.31% vs CHF (4-24h)"``."""
+    for token in str(text or "").replace("vs", " ").split():
         if token[:1] in "+-":
             try:
-                return float(token)
+                return float(token.rstrip("%,)"))
             except ValueError:
                 continue
-    return 0.0
+    return None
+
+
+def _strength_delta(sig: Any) -> float:
+    return _parse_delta(getattr(sig, "strength", "")) or 0.0
 
 
 def coherence(sig: Any) -> dict[str, Any]:
@@ -80,11 +83,22 @@ def coherence(sig: Any) -> dict[str, Any]:
             contra.append(ko_note)
 
     # --- Multi-timeframe structure ----------------------------------------
-    for label, attr, weight in (("D1", "d1", 3.0), ("H4", "h4", 2.5), ("H1", "h1", 2.0)):
+    # D1, H4 and H1 are the same price series resampled, so they are strongly
+    # collinear: scoring them as three independent confirmations inflates the
+    # apparent confluence of what is really a single fact. They are collapsed
+    # into one factor whose weight reflects how unanimous they are.
+    aligned, opposed = [], []
+    for label, attr in (("D1", "d1"), ("H4", "h4"), ("H1", "h1")):
         bias = _bull(getattr(sig, attr, ""))
         if bias == 0:
             continue
-        add(bias == sign, weight, f"{label} aligné", f"{label} opposé")
+        (aligned if bias == sign else opposed).append(label)
+    if aligned or opposed:
+        total = len(aligned) + len(opposed)
+        weight = 4.0 * (max(len(aligned), len(opposed)) / total)
+        add(len(aligned) > len(opposed), weight,
+            "structure " + "+".join(aligned) + " alignée",
+            "structure " + "+".join(opposed) + " opposée")
 
     m15 = str(getattr(sig, "m15", "") or "").upper()
     if m15:
@@ -94,6 +108,18 @@ def coherence(sig: Any) -> dict[str, Any]:
     delta = _strength_delta(sig)
     if abs(delta) >= 0.5:
         add(delta * sign > 0, 2.0, "force relative alignée", "force relative opposée")
+
+    # --- Short-horizon strength ------------------------------------------- #
+    # An M15 entry lives for minutes; the daily ranking describes the last few
+    # weeks. When the two disagree, the trade is fighting the flow that is
+    # actually running — weighted above the daily reading for that reason.
+    intra = _parse_delta(getattr(sig, "strength_intraday", ""))
+    if intra is not None and abs(intra) >= 0.05:
+        add(intra * sign > 0, 2.5,
+            "force intraday alignée", "force intraday opposée")
+        if abs(delta) >= 0.5 and delta * intra < 0:
+            contra_weight += 1.5
+            contra.append("divergence force journalière / intraday")
 
     # --- DXY: contextual, never a standalone veto --------------------------
     symbol = str(getattr(sig, "symbol", "") or "")

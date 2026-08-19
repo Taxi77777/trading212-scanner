@@ -30,6 +30,7 @@ import os
 import time
 from datetime import datetime, timezone
 
+import forex_symbols
 import run_forex_v6 as v6
 import free_market_data
 import forex_ai_judge
@@ -45,6 +46,8 @@ MARKET_DATA_SOURCE = free_market_data.SOURCE_NAME
 AI_SOURCE = forex_ai_judge.SOURCE_NAME
 AI_MAX_CALLS = int(os.getenv("FOREX_AI_MAX_CALLS", str(2 * scanner.MAX_ALERTS)))
 AI_FAILURES_BEFORE_OFFLINE = int(os.getenv("FOREX_AI_FAILURES_OFFLINE", "2"))
+# Max alerts that may express the same directional bet on one currency.
+MAX_PER_CURRENCY = int(os.getenv("FOREX_MAX_PER_CCY", "1"))
 
 STATS: dict[str, int] = {}
 
@@ -110,6 +113,47 @@ def _cooldown_lookup():
     return on_cooldown
 
 
+def _exposure(sig) -> tuple[tuple[str, int], ...]:
+    """The directional bets a signal expresses, one per currency.
+
+    A BUY on CAD/CHF is simultaneously *long CAD* and *short CHF*.
+    """
+    parts = forex_symbols.split(getattr(sig, "symbol", "") or getattr(sig, "pair", ""))
+    if not parts:
+        return ()
+    base, quote = parts
+    sign = 1 if str(getattr(sig, "side", "")).upper() == "BUY" else -1
+    return ((base, sign), (quote, -sign))
+
+
+def _limit_currency_exposure(survivors: list) -> list:
+    """Drop alerts that merely repeat a bet already taken by a better one.
+
+    Without this, one view — "CHF is weak" — can be broadcast as five separate
+    alerts (CAD/CHF, EUR/CHF, GBP/CHF, USD/CHF, AUD/CHF). They look like five
+    independent opportunities and are in fact a single trade at five times the
+    size. Signals are already ranked, so the strongest expression of each bet is
+    the one kept.
+    """
+    if MAX_PER_CURRENCY <= 0:
+        return survivors
+    taken: dict[tuple[str, int], int] = {}
+    kept = []
+    for sig, coherence in survivors:
+        legs = _exposure(sig)
+        if any(taken.get(leg, 0) >= MAX_PER_CURRENCY for leg in legs):
+            duplicate = next(l for l in legs if taken.get(l, 0) >= MAX_PER_CURRENCY)
+            sens = "hausse" if duplicate[1] > 0 else "baisse"
+            scanner.diag_note(sig.symbol, "exposition_dupliquee")
+            _bump("exposure_filtered")
+            sig.exposure_note = f"pari {sens} {duplicate[0]} déjà couvert"
+            continue
+        for leg in legs:
+            taken[leg] = taken.get(leg, 0) + 1
+        kept.append((sig, coherence))
+    return kept
+
+
 def _set_ai(sig, result: dict) -> None:
     sig.ai_verdict = result.get("verdict", "INDISPONIBLE")
     sig.ai_confidence = result.get("confidence", 0)
@@ -147,6 +191,7 @@ def rank_candidates(candidates: list) -> list:
 
     # Provisional order (engine score, then coherence) decides review priority.
     survivors.sort(key=lambda t: (t[0].score, t[1]["score"]), reverse=True)
+    survivors = _limit_currency_exposure(survivors)
 
     on_cooldown = _cooldown_lookup()
     ai_configured = forex_ai_judge.configured()
@@ -253,6 +298,7 @@ def diagnostic_message(ai_report: dict | None = None) -> str:
         f"Hors session : {d('hors_session')}",
         f"News high impact bloquante : {d('news_bloquante')}",
         f"Incohérence multi-facteurs : {d('incoherence_multi_facteurs')}",
+        f"Exposition dupliquée sur une devise : {d('exposition_dupliquee')}",
         f"Contradiction IA : {d('contradiction_ia')}",
         f"Cooldown actif : {d('cooldown')}",
         f"Hors budget de revue IA : {d('hors_budget_ia')}",

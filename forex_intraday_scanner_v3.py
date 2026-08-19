@@ -46,6 +46,11 @@ CALENDAR_URL = os.getenv("FOREX_CALENDAR_URL", "")
 
 # Per-scan rejection diagnostics. Filled by build_signal so the operator can
 # tell "no opportunity" apart from "broken pipeline".
+# Short-horizon currency strength, computed in main() from the M15 frames and
+# read by build_signal. Kept as module state so the build_signal signature — and
+# every wrapper built on it (v4 taux, v7, backtest) — stays unchanged.
+INTRADAY_STRENGTH: dict[str, float] = {}
+
 DIAG: dict[str, int] = {}
 DIAG_DETAIL: dict[str, str] = {}
 
@@ -93,6 +98,7 @@ class FxSignal:
     correlation: str
     news: str
     reasons: list[str]
+    strength_intraday: str = ""
 
 
 def fetch(symbol: str, interval: str, range_: str) -> Bars | None:
@@ -232,6 +238,30 @@ def currency_strength(ds: dict[str, Bars | None]) -> dict[str, float]:
     return {k: mean(v) if v else 0.0 for k, v in out.items()}
 
 
+def intraday_strength(m15_by_symbol: dict[str, Bars | None]) -> dict[str, float]:
+    """Currency strength over the last ~4 h and ~24 h of M15 data.
+
+    ``currency_strength`` averages daily returns over 5/20/60 sessions, so it
+    describes the past few weeks. An M15 entry lives for minutes to hours, and
+    the two can point in opposite directions — that gap is a real risk, not a
+    detail, so it is measured explicitly instead of being assumed away.
+    """
+    horizons = (16, 96)  # ≈ 4 h and ≈ 24 h of 15-minute bars
+    out: dict[str, list[float]] = {}
+    for symbol, bars in m15_by_symbol.items():
+        key = pair_key(symbol)
+        if key not in PAIRS or not bars:
+            continue
+        a, b, _ = PAIRS[key]
+        values = [ret(bars, n) for n in horizons if len(bars.close) > n]
+        if not values:
+            continue
+        r = mean(values)
+        out.setdefault(a, []).append(r)
+        out.setdefault(b, []).append(-r)
+    return {k: mean(v) for k, v in out.items() if v}
+
+
 def liquidity_state(m15: Bars, d1: Bars) -> tuple[str, int]:
     if not m15 or not d1 or len(m15.close) < 21 or len(d1.high) < 2:
         return "INCONNU", 0
@@ -367,6 +397,7 @@ def build_signal(pair: object, frames: dict[str, Bars | None], strength: dict[st
         return None
     td, th4, th1 = trend(d1), trend(h4), trend(h1)
     strong = strength.get(a, 0) - strength.get(b, 0)
+    intra = INTRADAY_STRENGTH.get(a, 0.0) - INTRADAY_STRENGTH.get(b, 0.0)
     dxy_r = ret(frames.get(DXY), 20)
     dxy = "BULL" if dxy_r > 1.5 else "BEAR" if dxy_r < -1.5 else "NEUTRAL"
     long = short = 0; lr, sr = [], []
@@ -441,7 +472,8 @@ def build_signal(pair: object, frames: dict[str, Bars | None], strength: dict[st
                     "BULLISH" if th4 > 0 else "BEARISH" if th4 < 0 else "MIXTE",
                     "BULLISH" if th1 > 0 else "BEARISH" if th1 < 0 else "MIXTE",
                     "CONFIRME" if trigger else "EN_ATTENTE",
-                    dxy, macro, f"{a} {strong:+.1f} vs {b}", vol, sess, liq_label, corr_label, news, reasons)
+                    dxy, macro, f"{a} {strong:+.1f} vs {b}", vol, sess, liq_label, corr_label, news, reasons,
+                    f"{a} {intra:+.2f}% vs {b} (4-24h)" if INTRADAY_STRENGTH else "")
 
 
 def price_fmt(pair: str, value: float) -> str:
@@ -480,6 +512,10 @@ def format_signal(s: FxSignal) -> str:
         f"M15 : {s.m15}",
         f"DXY : {s.dxy}",
         f"Force multi-horizon : {s.strength}",
+    ]
+    if getattr(s, "strength_intraday", ""):
+        lines.append(f"Force intraday : {s.strength_intraday}")
+    lines += [
         f"Volatilité : {s.vol_regime}",
         f"Liquidité : {s.liquidity}",
         f"Corrélation : {s.correlation}",
@@ -557,6 +593,8 @@ def main() -> int:
         data[s]["h4"] = resample_h4(data[s].get("h1"))
         data[s].update(market)
     strength = currency_strength({s: data[s].get("d1") for s in pairs})
+    INTRADAY_STRENGTH.clear()
+    INTRADAY_STRENGTH.update(intraday_strength({s: data[s].get("m15") for s in pairs}))
     macro, macro_reason = macro_regime(market)
     events = calendar_events()
     candidates = []
