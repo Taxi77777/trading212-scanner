@@ -21,7 +21,28 @@ scanner.PAIRS = {
 scanner.SETUP_MIN = 54
 scanner.FINAL_MIN = 68
 
-_rates, _rate_source = central_bank_rates.load_rates()
+# Central-bank rates are fetched lazily: importing this module used to fire two
+# blocking HTTP requests, which slowed every import (preflight, scanner, tests)
+# and made offline test runs depend on the network.
+_rates_cache: dict[str, object] = {}
+
+
+def rates() -> dict:
+    if "rates" not in _rates_cache:
+        try:
+            values, source = central_bank_rates.load_rates()
+        except Exception as exc:  # never let the overlay break the engine
+            values, source = {}, f"indisponible ({exc})"
+        _rates_cache["rates"] = values
+        _rates_cache["source"] = source
+    return _rates_cache["rates"]  # type: ignore[return-value]
+
+
+def rate_source() -> str:
+    rates()
+    return str(_rates_cache.get("source", "inconnu"))
+
+
 _original_build = scanner.build_signal
 
 
@@ -30,7 +51,7 @@ def build_signal_with_rates(pair, frames, strength, macro, macro_reason, news, n
     if sig is None:
         return None
 
-    assessment, diff = central_bank_rates.assessment(sig.pair, sig.side, _rates)
+    assessment, diff = central_bank_rates.assessment(sig.pair, sig.side, rates())
 
     if assessment == "TAUX_FORTEMENT_FAVORABLE":
         sig.score = min(100, sig.score + 4)

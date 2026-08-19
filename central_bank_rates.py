@@ -69,7 +69,19 @@ def differential(base: str, quote: str, rates: Dict[str, float]) -> float | None
 
 
 def assessment(pair: str, side: str, rates: Dict[str, float]) -> tuple[str, float | None]:
-    base, quote = pair.split("/")
+    # Accept any spelling: "EUR/USD", "EURUSD", "EURUSD=X".
+    try:
+        import forex_symbols
+
+        parts = forex_symbols.split(pair)
+    except Exception:
+        parts = None
+    if parts is None:
+        text = str(pair or "")
+        if "/" not in text:
+            return "TAUX_INCONNU", None
+        parts = tuple(text.split("/", 1))  # type: ignore[assignment]
+    base, quote = parts[0], parts[1]
     diff = differential(base, quote, rates)
     if diff is None:
         return "TAUX_INCONNU", None

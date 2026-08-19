@@ -19,6 +19,7 @@ from statistics import mean
 from urllib.parse import urlparse
 
 import requests
+import forex_symbols as fxsym
 import telegram_signals as base
 
 LOG = logging.getLogger("forex-v3")
@@ -42,6 +43,21 @@ MAX_ALERTS = int(os.getenv("FOREX_MAX_ALERTS", "3"))
 COOLDOWN = int(os.getenv("FOREX_COOLDOWN_MIN", "240"))
 NEWS_BLOCK_MIN = int(os.getenv("FOREX_NEWS_BLOCK_MIN", "30"))
 CALENDAR_URL = os.getenv("FOREX_CALENDAR_URL", "")
+
+# Per-scan rejection diagnostics. Filled by build_signal so the operator can
+# tell "no opportunity" apart from "broken pipeline".
+DIAG: dict[str, int] = {}
+DIAG_DETAIL: dict[str, str] = {}
+
+
+def diag_reset() -> None:
+    DIAG.clear()
+    DIAG_DETAIL.clear()
+
+
+def diag_note(symbol: str, reason: str) -> None:
+    DIAG[reason] = DIAG.get(reason, 0) + 1
+    DIAG_DETAIL[str(symbol)] = reason
 
 @dataclass
 class Bars:
@@ -162,16 +178,41 @@ def session_name() -> str:
     return "HORS_SESSION"
 
 
-def volatility_regime(d: Bars | None) -> str:
-    a = atr(d)
-    if not d or a <= 0 or len(d.close) < 60:
+def _true_ranges(d: Bars) -> list[float]:
+    tr, prev = [], d.close[0]
+    for h, l, c in zip(d.high[1:], d.low[1:], d.close[1:]):
+        tr.append(max(h - l, abs(h - prev), abs(l - prev)))
+        prev = c
+    return tr
+
+
+def volatility_regime(d: Bars | None, p: int = 14) -> str:
+    """ATR now vs the average ATR of the last 30 bars.
+
+    Mathematically identical to the previous implementation but O(n) instead of
+    O(n^2) — the old version rebuilt a full Bars slice and recomputed the whole
+    true-range series for every bar, which dominated the scan runtime.
+    """
+    if not d or len(d.close) < 60:
         return "INCONNU"
-    now = atr(d)
-    hist = []
-    for i in range(30, len(d.close)):
-        sub = Bars(d.ts[:i], d.open[:i], d.high[:i], d.low[:i], d.close[:i], d.volume[:i])
-        hist.append(atr(sub))
-    med = mean(hist[-30:]) if hist else now
+    tr = _true_ranges(d)
+    if len(tr) < p + 1:
+        return "INCONNU"
+    prefix = [0.0]
+    for value in tr:
+        prefix.append(prefix[-1] + value)
+
+    def window(i: int) -> float:
+        # mean(tr[i - p - 1 : i - 1]) == atr(Bars sliced to i bars)
+        lo, hi = i - p - 1, i - 1
+        return (prefix[hi] - prefix[lo]) / p
+
+    n = len(d.close)
+    now = window(n)
+    if now <= 0:
+        return "INCONNU"
+    hist = [window(i) for i in range(max(30, n - 30), n)]
+    med = mean(hist) if hist else now
     ratio = now / med if med else 1.0
     if ratio > 1.8: return "EXPLOSIVE"
     if ratio > 1.25: return "ELEVEE"
@@ -192,6 +233,8 @@ def currency_strength(ds: dict[str, Bars | None]) -> dict[str, float]:
 
 
 def liquidity_state(m15: Bars, d1: Bars) -> tuple[str, int]:
+    if not m15 or not d1 or len(m15.close) < 21 or len(d1.high) < 2:
+        return "INCONNU", 0
     p = m15.close[-1]
     prev_hi, prev_lo = d1.high[-2], d1.low[-2]
     recent_hi, recent_lo = max(m15.high[-20:-1]), min(m15.low[-20:-1])
@@ -204,8 +247,18 @@ def liquidity_state(m15: Bars, d1: Bars) -> tuple[str, int]:
     return "RANGE", 0
 
 
-def correlation_bias(pair: str, frames: dict[str, Bars | None]) -> tuple[str, int]:
-    a, b, _ = PAIRS[pair]
+def correlation_bias(pair: str, frames: dict[str, Bars | None], side: str | None = None) -> tuple[str, int]:
+    """Correlation proxy for *pair*.
+
+    The returned score is expressed in "favours BUY" terms. The label is
+    resolved against *side* when known: a negative score is a *confirmation*
+    for a SELL, not a contradiction. The previous side-agnostic label caused
+    valid short setups to be rejected as "CONTRE".
+    """
+    key = pair_key(pair)
+    if key not in PAIRS:
+        return "NEUTRE", 0
+    a, b, _ = PAIRS[key]
     dxy_r = ret(frames.get(DXY), 20)
     us10_r = ret(frames.get(US10Y), 20)
     score = 0
@@ -215,10 +268,14 @@ def correlation_bias(pair: str, frames: dict[str, Bars | None]) -> tuple[str, in
         if b == "USD" and usd_long: score -= 2
         if a == "USD" and dxy_r < -1.5: score -= 2
         if b == "USD" and dxy_r < -1.5: score += 2
-    if pair in ("USDJPY=X", "EURJPY=X", "GBPJPY=X", "AUDJPY=X", "CADJPY=X"):
+    if "JPY" in (a, b):
         if us10_r > 2: score += 1 if a == "USD" else 0
         if us10_r < -2: score -= 1 if a == "USD" else 0
-    label = "CONFIRMÉ" if score > 0 else "CONTRE" if score < 0 else "NEUTRE"
+    if side is None:
+        aligned = score
+    else:
+        aligned = score if str(side).upper() == "BUY" else -score
+    label = "CONFIRMÉ" if aligned > 0 else "CONTRE" if aligned < 0 else "NEUTRE"
     return label, score
 
 
@@ -252,23 +309,31 @@ def calendar_events() -> list[dict]:
         return []
 
 
-def pair_key(pair: str) -> str:
-    """Resolve either a Yahoo symbol or a human-readable label to PAIRS key."""
-    if pair in PAIRS:
-        return pair
-    normalized = str(pair).strip().upper().replace(" ", "")
-    for symbol, values in PAIRS.items():
-        if normalized == str(values[2]).upper().replace(" ", ""):
-            return symbol
-    return pair
+def pair_key(pair: object) -> str:
+    """Resolve any spelling of a pair to the key used by ``PAIRS``.
+
+    Accepts ``EUR/USD``, ``EURUSD``, ``EURUSD=X`` (and separator/case variants)
+    via the centralised :mod:`forex_symbols` normaliser. Returns the input
+    unchanged when it cannot be resolved, so callers keep their own guard.
+    """
+    resolved = fxsym.resolve_key(pair, PAIRS)
+    if resolved is not None:
+        return resolved
+    canonical = fxsym.canonical(pair)
+    return canonical if canonical is not None else str(pair)
 
 
-def event_risk(pair: str, events: list[dict]) -> tuple[str, bool]:
-    pair = pair_key(pair)
-    if pair not in PAIRS:
-        LOG.warning("Unknown forex pair in event_risk: %s", pair)
-        return "AUCUN HIGH IMPACT CONFIGURE", False
-    now = time.time(); base_ccy, quote_ccy, _ = PAIRS[pair]
+def event_risk(pair: object, events: list[dict]) -> tuple[str, bool]:
+    key = pair_key(pair)
+    if key in PAIRS:
+        base_ccy, quote_ccy = PAIRS[key][0], PAIRS[key][1]
+    else:
+        parts = fxsym.split(pair)
+        if not parts:
+            LOG.warning("Unknown forex pair in event_risk: %r", pair)
+            return "PAIRE INCONNUE — RISQUE NEWS NON EVALUE", False
+        base_ccy, quote_ccy = parts
+    now = time.time()
     for ev in events:
         impact = str(ev.get("impact", ev.get("importance", ""))).lower()
         if impact not in ("high", "3", "red"):
@@ -288,7 +353,10 @@ def event_risk(pair: str, events: list[dict]) -> tuple[str, bool]:
 def build_signal(pair: str, frames: dict[str, Bars | None], strength: dict[str, float], macro: str, macro_reason: str, news: str, news_block: bool) -> FxSignal | None:
     a, b, label = PAIRS[pair]
     d1, h4, h1, m15 = frames.get("d1"), frames.get("h4"), frames.get("h1"), frames.get("m15")
-    if not all((d1, h4, h1, m15)): return None
+    if not all((d1, h4, h1, m15)):
+        missing = [k for k in ("d1", "h4", "h1", "m15") if not frames.get(k)]
+        diag_note(pair, "donnees_insuffisantes:" + "+".join(missing))
+        return None
     td, th4, th1 = trend(d1), trend(h4), trend(h1)
     strong = strength.get(a, 0) - strength.get(b, 0)
     dxy_r = ret(frames.get(DXY), 20)
@@ -306,21 +374,35 @@ def build_signal(pair: str, frames: dict[str, Bars | None], strength: dict[str, 
     if corr_score > 0: long += 5; lr.append("corrélation confirme")
     if corr_score < 0: short += 5; sr.append("corrélation confirme")
     liq_label, liq_score = liquidity_state(m15, d1)
+    if long == short:
+        # No directional edge at all: previously this silently became a SELL.
+        diag_note(pair, "aucune_direction")
+        return None
     side = "BUY" if long > short else "SELL"
+    corr_label, _ = correlation_bias(pair, frames, side)
     raw = max(long, short)
-    score = raw + abs(corr_score)
+    # The correlation bonus must only reward the side the correlation supports.
+    aligned_corr = corr_score if side == "BUY" else -corr_score
+    score = raw + max(0, aligned_corr)
     if macro == "RISK-ON" and a in ("AUD", "NZD", "CAD"): score += 3 if side == "BUY" else 0
     if macro == "RISK-OFF" and b in ("JPY", "CHF"): score += 3 if side == "SELL" else 0
     if news_block:
+        diag_note(pair, "news_bloquante")
         return None
-    if score < SETUP_MIN: return None
+    if score < SETUP_MIN:
+        diag_note(pair, "score_sous_seuil_setup")
+        return None
     sess = session_name()
-    if sess == "HORS_SESSION": return None
+    if sess == "HORS_SESSION":
+        diag_note(pair, "hors_session")
+        return None
     vol = volatility_regime(m15)
     if vol == "EXPLOSIVE": score -= 3
     if vol == "FAIBLE": score -= 2
     p = m15.close[-1]; a15 = atr(m15); a1 = atr(h1)
-    if a15 <= 0 or a1 <= 0: return None
+    if a15 <= 0 or a1 <= 0:
+        diag_note(pair, "atr_invalide")
+        return None
     e20 = ema(m15.close, 20)[-1]
     hi, lo = max(m15.high[-12:-1]), min(m15.low[-12:-1])
     trigger = (p > hi or (p > e20 and m15.close[-1] > m15.close[-2])) if side == "BUY" else (p < lo or (p < e20 and m15.close[-1] < m15.close[-2]))
@@ -336,8 +418,15 @@ def build_signal(pair: str, frames: dict[str, Bars | None], strength: dict[str, 
         sl = max(hi + 0.35 * a15, p + 1.1 * a15)
         risk = max(sl - p, a15)
         tp1, tp2 = p - 1.7 * risk, p - 2.8 * risk
-    rr = 1.7
+    # Real reward/risk measured on the actual stop distance. The hard-coded 1.7
+    # was wrong whenever the ATR floor widened `risk` beyond |entry - SL|.
+    stop_distance = abs(p - sl)
+    rr = round(abs(tp1 - p) / stop_distance, 2) if stop_distance > 0 else 0.0
+    if rr <= 0:
+        diag_note(pair, "rr_invalide")
+        return None
     final_score = max(0, min(100, int(score + (liq_score if trigger else 0))))
+    diag_note(pair, "retenu_" + state.lower())
     reasons = lr if side == "BUY" else sr
     return FxSignal(label, pair, side, state, final_score, p, sl, tp1, tp2, rr,
                     "BULLISH" if td > 0 else "BEARISH" if td < 0 else "MIXTE",
@@ -347,22 +436,101 @@ def build_signal(pair: str, frames: dict[str, Bars | None], strength: dict[str, 
                     dxy, macro, f"{a} {strong:+.1f} vs {b}", vol, sess, liq_label, corr_label, news, reasons)
 
 
+def price_fmt(pair: str, value: float) -> str:
+    """JPY crosses quote in 0.01 units; everything else in 0.0001."""
+    parts = fxsym.split(pair)
+    quote = parts[1] if parts else ""
+    return f"{value:.3f}" if quote == "JPY" else f"{value:.5f}"
+
+
 def format_signal(s: FxSignal) -> str:
     icon = "🟢" if s.side == "BUY" else "🔴"
     action = "ACHAT" if s.side == "BUY" else "VENTE"
-    return (
-        f"{icon} SIGNAL FOREX {s.state} — {s.pair}\n━━━━━━━━━━━━━━━━━━\n"
-        f"STRATÉGIE : D1 + H4 + H1 + M15\nDirection : {action}\nScore : {s.score}/100\n"
-        f"Entrée : {s.price:.5f}\nSL : {s.sl:.5f}\nTP1 : {s.tp1:.5f}\nTP2 : {s.tp2:.5f}\nR:R TP1 : 1:{s.rr:.1f}\n"
-        f"D1 : {s.d1} | H4 : {s.h4} | H1 : {s.h1} | M15 : {s.m15}\n"
-        f"DXY : {s.dxy}\nForce multi-horizon : {s.strength}\nVolatilité : {s.vol_regime}\n"
-        f"Liquidité : {s.liquidity}\nCorrélation : {s.correlation}\nMacro : {s.macro}\nSession : {s.session}\nNews : {s.news}\n"
-        f"Confluence : {' • '.join(s.reasons[:8])}\n⚠️ Analyse uniquement — aucun ordre Forex n'est exécuté."
-    )
+    medal = str(getattr(s, "medal_label", "") or "")
+    header = f"{icon} {medal} — SIGNAL FOREX {s.state} — {s.pair}" if medal else \
+             f"{icon} SIGNAL FOREX {s.state} — {s.pair}"
+
+    lines = [
+        header,
+        "━━━━━━━━━━━━━━━━━━",
+        "STRATÉGIE : D1 + H4 + H1 + M15",
+        f"Direction : {action}",
+        f"Score : {s.score}/100",
+    ]
+    quality_score = getattr(s, "quality_score", None)
+    if quality_score is not None:
+        lines.append(f"Qualité globale : {quality_score}/100")
+    lines += [
+        f"Entrée : {price_fmt(s.pair, s.price)}",
+        f"SL : {price_fmt(s.pair, s.sl)}",
+        f"TP1 : {price_fmt(s.pair, s.tp1)}",
+        f"TP2 : {price_fmt(s.pair, s.tp2)}",
+        f"R:R TP1 : 1:{s.rr:.2f}",
+        f"D1 : {s.d1}",
+        f"H4 : {s.h4}",
+        f"H1 : {s.h1}",
+        f"M15 : {s.m15}",
+        f"DXY : {s.dxy}",
+        f"Force multi-horizon : {s.strength}",
+        f"Volatilité : {s.vol_regime}",
+        f"Liquidité : {s.liquidity}",
+        f"Corrélation : {s.correlation}",
+        f"Macro : {s.macro}",
+        f"Session : {s.session}",
+        f"News : {s.news}",
+    ]
+    coherence_label = getattr(s, "coherence_label", "")
+    if coherence_label:
+        lines.append(f"Cohérence multi-facteurs : {coherence_label}")
+
+    verdict = str(getattr(s, "ai_verdict", "") or "")
+    if verdict:
+        if verdict == "INDISPONIBLE":
+            lines.append("🤖 IA Cloudflare Qwen3 : INDISPONIBLE — signal validé par le moteur quantitatif seul")
+        else:
+            lines.append(f"🤖 IA Cloudflare Qwen3 : {verdict} ({getattr(s, 'ai_confidence', 0)}%)")
+        reason = str(getattr(s, "ai_reason", "") or "")
+        if reason and verdict != "INDISPONIBLE":
+            lines.append(f"Motif IA : {reason}")
+
+    if s.reasons:
+        lines.append("Confluence :")
+        lines += [f"• {r}" for r in s.reasons[:8]]
+    lines.append("⚠️ Analyse uniquement — aucun ordre Forex n'est exécuté.")
+    return "\n".join(lines)
+
+
+LAST_RUN: dict = {}
+SUPPRESS_SUMMARY = False
+STATE_TTL_DAYS = float(os.getenv("FOREX_STATE_TTL_DAYS", "14"))
+
+
+def rank_candidates(candidates: list["FxSignal"]) -> list["FxSignal"]:
+    """Default ranking: raw score. Overridden downstream by the quality rank."""
+    return sorted(candidates, key=lambda x: x.score, reverse=True)
+
+
+def prune_state(state: dict) -> dict:
+    """Drop cooldown entries far older than any cooldown window."""
+    cutoff = time.time() - STATE_TTL_DAYS * 86400
+    out = {}
+    for key, value in state.items():
+        if not key.startswith("FXV3:"):
+            out[key] = value
+            continue
+        try:
+            if float(value.get("sent_at", 0)) >= cutoff:
+                out[key] = value
+        except (AttributeError, TypeError, ValueError):
+            continue
+    return out
 
 
 def main() -> int:
+    diag_reset()
+    LAST_RUN.clear()
     if not base.TELEGRAM_BOT_TOKEN or not base.TELEGRAM_CHAT_ID:
+        LOG.error("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID manquants.")
         return 2
     pairs = list(PAIRS)
     data: dict[str, dict[str, Bars | None]] = {s: {} for s in pairs}
@@ -386,27 +554,51 @@ def main() -> int:
     candidates = []
     setup_count = entry_count = blocked_news = 0
     for s in pairs:
-        news, blocked = event_risk(PAIRS[s][2], events)
+        # Always index with the technical key, never a display label.
+        news, blocked = event_risk(s, events)
         if blocked: blocked_news += 1
         sig = build_signal(s, data[s], strength, macro, macro_reason, news, blocked)
         if sig:
             candidates.append(sig)
             setup_count += 1
             entry_count += int(sig.state == "ENTREE")
-    candidates.sort(key=lambda x: x.score, reverse=True)
-    state = base.load_state(); now = time.time(); sent = 0
+    candidates = rank_candidates(candidates)
+    state = base.load_state(); now = time.time(); sent = 0; cooldown_skipped = 0
     for sig in candidates[:MAX_ALERTS]:
         key = f"FXV3:{sig.pair}:{sig.side}:{sig.state}"
         if now - float(state.get(key, {}).get("sent_at", 0)) < COOLDOWN * 60:
+            cooldown_skipped += 1
+            diag_note(sig.symbol, "cooldown")
             continue
         if base.telegram_send(format_signal(sig)):
             state[key] = {"sent_at": now, "price": sig.price, "score": sig.score}
             sent += 1
-    base.save_state(state)
-    base.telegram_send(
-        f"💱 Scan FOREX v3 D1+H4+H1+M15: setups {setup_count} | entrées {entry_count} | envoyés {sent} | news bloqués {blocked_news} | Macro {macro}"
+        else:
+            diag_note(sig.symbol, "echec_envoi_telegram")
+    base.save_state(prune_state(state))
+    LAST_RUN.update({
+        "pairs": len(pairs),
+        "setups": setup_count,
+        "entries": entry_count,
+        "sent": sent,
+        "cooldown_skipped": cooldown_skipped,
+        "blocked_news": blocked_news,
+        "macro": macro,
+        "macro_reason": macro_reason,
+        "calendar_events": len(events),
+        "candidates": candidates,
+        "diag": dict(DIAG),
+        "session": session_name(),
+    })
+    if not SUPPRESS_SUMMARY:
+        base.telegram_send(
+            f"💱 Scan FOREX v3 D1+H4+H1+M15: setups {setup_count} | entrées {entry_count} | envoyés {sent} | news bloqués {blocked_news} | Macro {macro}"
+        )
+    LOG.info(
+        "Forex v3: setups=%d entries=%d sent=%d cooldown=%d news_bloques=%d",
+        setup_count, entry_count, sent, cooldown_skipped, blocked_news,
     )
-    LOG.info("Forex v3: setups=%d entries=%d sent=%d", setup_count, entry_count, sent)
+    LOG.info("Forex v3 diagnostic: %s", json.dumps(DIAG, ensure_ascii=False, sort_keys=True))
     return 0
 
 
