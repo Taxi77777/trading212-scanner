@@ -193,5 +193,20 @@
     "sent_at": 1787146556.152351,
     "price": 147.2550048828125,
     "score": 73
+  },
+  "FXV3:GBP/USD:BUY:ENTREE": {
+    "sent_at": 1787146734.7619224,
+    "price": 1.361952543258667,
+    "score": 77
+  },
+  "FXV3:AUD/CAD:BUY:SETUP": {
+    "sent_at": 1787146734.7619224,
+    "price": 0.9848899841308594,
+    "score": 59
+  },
+  "FXV3:EUR/NZD:SELL:SETUP": {
+    "sent_at": 1787146734.7619224,
+    "price": 1.968150019645691,
+    "score": 38
   }
 }
