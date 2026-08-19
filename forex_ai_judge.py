@@ -7,11 +7,13 @@ from typing import Any
 
 import requests
 
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.6:27b")
-OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "12"))
+CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
+CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
+CLOUDFLARE_GATEWAY_ID = os.getenv("CLOUDFLARE_GATEWAY_ID", "default").strip() or "default"
+CLOUDFLARE_MODEL = os.getenv("CLOUDFLARE_MODEL", "@cf/qwen/qwen3-30b-a3b-fp8").strip()
+AI_TIMEOUT = float(os.getenv("AI_TIMEOUT", "20"))
 
-SOURCE_NAME = f"Ollama / {OLLAMA_MODEL} (optionnel, open-weight)"
+SOURCE_NAME = f"Cloudflare Workers AI / {CLOUDFLARE_MODEL}"
 
 
 def _json_from_text(text: str) -> dict[str, Any] | None:
@@ -30,11 +32,27 @@ def _json_from_text(text: str) -> dict[str, Any] | None:
             return None
 
 
-def judge_signal(sig: Any) -> dict[str, Any]:
-    """Ask local Qwen to cross-check an already-formed quantitative signal.
+def _normalise_result(result: dict[str, Any] | None) -> dict[str, Any]:
+    if not result:
+        return {"available": True, "verdict": "PRUDENCE", "confidence": 0, "contradiction": False, "reason": "Réponse IA non structurée"}
+    verdict = str(result.get("verdict", "PRUDENCE")).upper()
+    if verdict not in {"CONFIRME", "PRUDENCE", "CONTRADICTION"}:
+        verdict = "PRUDENCE"
+    try:
+        confidence = max(0, min(100, int(float(result.get("confidence", 0) or 0))))
+    except (TypeError, ValueError):
+        confidence = 0
+    contradiction = bool(result.get("contradiction", verdict == "CONTRADICTION"))
+    reason = str(result.get("reason", ""))[:300]
+    return {"available": True, "verdict": verdict, "confidence": confidence, "contradiction": contradiction, "reason": reason}
 
-    Second opinion only. It never creates a signal and never raises into the
-    production scanner when Ollama is unavailable.
+
+def judge_signal(sig: Any) -> dict[str, Any]:
+    """Cloudflare AI second opinion for an already-formed quantitative signal.
+
+    The model can confirm, warn, or reject. It never creates a trade signal.
+    If Cloudflare is unavailable or the daily free allocation is exhausted,
+    the quantitative scanner continues and explicitly reports the AI as offline.
     """
     payload = {
         "pair": getattr(sig, "pair", ""),
@@ -64,47 +82,45 @@ def judge_signal(sig: Any) -> dict[str, Any]:
     }
 
     system = (
-        "You are a conservative FX risk-review assistant. Review only the supplied "
-        "quantitative signal. Do not create trades and do not invent missing data. "
-        "Return JSON only with keys: verdict, confidence, contradiction, reason. "
+        "You are a conservative FX risk-review assistant. Review only the supplied quantitative signal. "
+        "Do not create trades. Do not invent missing data or current prices. "
+        "Check direction against D1/H4/H1/M15, DXY, macro, currency strength, volatility, liquidity, correlation, news, and R:R. "
+        "Return JSON only with keys verdict, confidence, contradiction, reason. "
         "verdict must be CONFIRME, PRUDENCE or CONTRADICTION. "
-        "Use CONTRADICTION only when supplied evidence directly conflicts with the trade direction."
+        "Use CONTRADICTION only when supplied evidence directly conflicts with the proposed direction."
     )
 
+    if not CLOUDFLARE_ACCOUNT_ID or not CLOUDFLARE_API_TOKEN:
+        return {"available": False, "verdict": "INDISPONIBLE", "confidence": 0, "contradiction": False, "reason": "Secrets Cloudflare AI absents"}
+
+    url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+        "Content-Type": "application/json",
+        "cf-aig-gateway-id": CLOUDFLARE_GATEWAY_ID,
+    }
+    body = {
+        "model": CLOUDFLARE_MODEL,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))},
+        ],
+        "temperature": 0,
+        "max_tokens": 180,
+    }
+
     try:
-        response = requests.post(
-            f"{OLLAMA_HOST}/api/chat",
-            json={
-                "model": OLLAMA_MODEL,
-                "stream": False,
-                "format": "json",
-                "options": {"temperature": 0},
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-                ],
-            },
-            timeout=OLLAMA_TIMEOUT,
-        )
+        response = requests.post(url, headers=headers, json=body, timeout=AI_TIMEOUT)
         response.raise_for_status()
         data = response.json()
-        content = data.get("message", {}).get("content", "")
-        result = _json_from_text(content)
-        if not result:
-            return {"available": True, "verdict": "PRUDENCE", "confidence": 0, "contradiction": False, "reason": "Réponse IA non structurée"}
-
-        verdict = str(result.get("verdict", "PRUDENCE")).upper()
-        if verdict not in {"CONFIRME", "PRUDENCE", "CONTRADICTION"}:
-            verdict = "PRUDENCE"
-        confidence = max(0, min(100, int(float(result.get("confidence", 0) or 0))))
-        contradiction = bool(result.get("contradiction", verdict == "CONTRADICTION"))
-        reason = str(result.get("reason", ""))[:300]
-        return {
-            "available": True,
-            "verdict": verdict,
-            "confidence": confidence,
-            "contradiction": contradiction,
-            "reason": reason,
-        }
+        content = ((data.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+        return _normalise_result(_json_from_text(content))
     except Exception as exc:
-        return {"available": False, "verdict": "INDISPONIBLE", "confidence": 0, "contradiction": False, "reason": str(exc)[:160]}
+        reason = str(exc)
+        try:
+            detail = response.text[:160]  # type: ignore[name-defined]
+            if detail:
+                reason = f"{reason} | {detail}"
+        except Exception:
+            pass
+        return {"available": False, "verdict": "INDISPONIBLE", "confidence": 0, "contradiction": False, "reason": reason[:300]}
