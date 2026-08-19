@@ -335,6 +335,8 @@ def event_risk(pair: object, events: list[dict]) -> tuple[str, bool]:
         base_ccy, quote_ccy = parts
     now = time.time()
     for ev in events:
+        if not isinstance(ev, dict):
+            continue
         impact = str(ev.get("impact", ev.get("importance", ""))).lower()
         if impact not in ("high", "3", "red"):
             continue
@@ -350,7 +352,13 @@ def event_risk(pair: object, events: list[dict]) -> tuple[str, bool]:
     return "AUCUN HIGH IMPACT CONFIGURE", False
 
 
-def build_signal(pair: str, frames: dict[str, Bars | None], strength: dict[str, float], macro: str, macro_reason: str, news: str, news_block: bool) -> FxSignal | None:
+def build_signal(pair: object, frames: dict[str, Bars | None], strength: dict[str, float], macro: str, macro_reason: str, news: str, news_block: bool) -> FxSignal | None:
+    # Normalise first: no code path may depend on being handed a technical key.
+    pair = pair_key(pair)
+    if pair not in PAIRS:
+        LOG.warning("Unknown forex pair in build_signal: %r", pair)
+        diag_note(pair, "paire_inconnue")
+        return None
     a, b, label = PAIRS[pair]
     d1, h4, h1, m15 = frames.get("d1"), frames.get("h4"), frames.get("h1"), frames.get("m15")
     if not all((d1, h4, h1, m15)):
