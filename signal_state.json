@@ -103,5 +103,20 @@
     "sent_at": 1787101766.4997349,
     "price": 184.55599975585938,
     "score": 56
+  },
+  "FXV3:GBP/NZD:BUY:SETUP": {
+    "sent_at": 1787101858.3366,
+    "price": 2.3059399127960205,
+    "score": 52
+  },
+  "FXV3:NZD/CHF:BUY:SETUP": {
+    "sent_at": 1787101858.3366,
+    "price": 0.4765399992465973,
+    "score": 55
+  },
+  "FXV3:NZD/USD:BUY:SETUP": {
+    "sent_at": 1787101858.3366,
+    "price": 0.5867167711257935,
+    "score": 48
   }
 }
