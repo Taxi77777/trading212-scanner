@@ -120,8 +120,8 @@
     "score": 52
   },
   "FXV3:GBP/AUD:BUY:SETUP": {
-    "sent_at": 1787102204.450052,
-    "price": 1.9122099876403809,
+    "sent_at": 1787124101.8935719,
+    "price": 1.9160300493240356,
     "score": 36
   },
   "FXV3:EUR/AUD:SELL:SETUP": {
@@ -130,13 +130,13 @@
     "score": 42
   },
   "FXV3:EUR/GBP:SELL:SETUP": {
-    "sent_at": 1787102204.450052,
-    "price": 0.8555200099945068,
-    "score": 40
+    "sent_at": 1787124101.8935719,
+    "price": 0.8557599782943726,
+    "score": 42
   },
   "FXV3:EUR/NZD:BUY:SETUP": {
-    "sent_at": 1787105944.7757192,
-    "price": 1.9721599817276,
+    "sent_at": 1787124101.8935719,
+    "price": 1.9742799997329712,
     "score": 32
   },
   "FXV3:NZD/CAD:SELL:SETUP": {
