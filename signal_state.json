@@ -73,5 +73,20 @@
     "sent_at": 1787096403.2424848,
     "price": 0.5754600167274475,
     "score": 75
+  },
+  "FXV3:GBP/USD:BUY:SETUP": {
+    "sent_at": 1787101536.5797274,
+    "price": 1.353051781654358,
+    "score": 61
+  },
+  "FXV3:AUD/USD:BUY:SETUP": {
+    "sent_at": 1787101536.5797274,
+    "price": 0.7078142762184143,
+    "score": 62
+  },
+  "FXV3:CAD/JPY:BUY:SETUP": {
+    "sent_at": 1787101536.5797274,
+    "price": 114.70899963378906,
+    "score": 59
   }
 }
