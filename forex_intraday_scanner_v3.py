@@ -57,6 +57,10 @@ INTRADAY_STRENGTH: dict[str, float] = {}
 HAVEN_CCY = tuple(os.getenv("FOREX_HAVEN_CCY", "JPY,CHF").split(","))
 RISK_CCY = tuple(os.getenv("FOREX_RISK_CCY", "AUD,NZD,CAD").split(","))
 REGIME_MIN = float(os.getenv("FOREX_REGIME_MIN", "0.10"))
+# Timeframe whose ATR sizes the stop. "m15" is the shipped behaviour; "h1"
+# widens the stop to the horizon the D1/H4 thesis actually plays out on.
+# Backtest-only knob — the default changes nothing.
+STOP_ATR_TF = os.getenv("FOREX_STOP_ATR_TF", "m15").strip().lower()
 INTRADAY_REGIME: dict[str, object] = {}
 
 DIAG: dict[str, int] = {}
@@ -498,13 +502,14 @@ def build_signal(pair: object, frames: dict[str, Bars | None], strength: dict[st
     if not trigger:
         # Still alert strong setups; entry remains pending M15 confirmation.
         state = "SETUP"
+    a_stop = a1 if STOP_ATR_TF == "h1" else a15
     if side == "BUY":
-        sl = min(lo - 0.35 * a15, p - 1.1 * a15)
-        risk = max(p - sl, a15)
+        sl = min(lo - 0.35 * a_stop, p - 1.1 * a_stop)
+        risk = max(p - sl, a_stop)
         tp1, tp2 = p + 1.7 * risk, p + 2.8 * risk
     else:
-        sl = max(hi + 0.35 * a15, p + 1.1 * a15)
-        risk = max(sl - p, a15)
+        sl = max(hi + 0.35 * a_stop, p + 1.1 * a_stop)
+        risk = max(sl - p, a_stop)
         tp1, tp2 = p - 1.7 * risk, p - 2.8 * risk
     # Real reward/risk measured on the actual stop distance. The hard-coded 1.7
     # was wrong whenever the ATR floor widened `risk` beyond |entry - SL|.

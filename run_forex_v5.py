@@ -28,6 +28,10 @@ def flexible_trend(d):
     return 0
 
 
+# Keep the v3 definition reachable so the two can be compared on identical
+# bars instead of being argued about.
+strict_trend = scanner.trend
+
 scanner.trend = flexible_trend
 scanner.SETUP_MIN = 48
 scanner.FINAL_MIN = 68
