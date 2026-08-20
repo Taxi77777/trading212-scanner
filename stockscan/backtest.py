@@ -35,6 +35,8 @@ class Trade:
     ticker: str = ""
     phase: str = ""
     entry_index: int = 0
+    entry_ts: int = 0                # horodatage reel, comparable entre valeurs
+    exit_ts: int = 0
     entry: float = 0.0
     stop: float = 0.0
     target: float = 0.0
@@ -171,6 +173,7 @@ def walk(bars: md.Bars, bench: md.Bars | None, *, ticker: str = "",
             continue
         last_entry = i
         trades.append(Trade(ticker=ticker, phase=phase.name, entry_index=i,
+                            entry_ts=bars.ts[i], exit_ts=bars.ts[exit_i],
                             entry=plan.entry, stop=plan.stop, target=target,
                             exit_index=exit_i, exit=bars.close[exit_i],
                             r_multiple=round(r, 4), bars_held=exit_i - i,
@@ -180,6 +183,11 @@ def walk(bars: md.Bars, bench: md.Bars | None, *, ticker: str = "",
 
 
 def aggregate(trades: list[Trade], *, evaluated: int = 0) -> BacktestResult:
+    # Les trades arrivent empiles valeur par valeur. Toute statistique de
+    # SEQUENCE — au premier rang le drawdown — devient alors une fiction : elle
+    # decrit une courbe de capital ou l'on aurait fini de trader Air Liquide
+    # avant de commencer Bayer. On remet l'ordre du temps avant de compter.
+    trades = sorted(trades, key=lambda t: (t.entry_ts, t.ticker))
     result = BacktestResult(trades=trades, evaluated=evaluated,
                             triggered=len(trades))
     result.overall = performance([t.r_multiple for t in trades])
