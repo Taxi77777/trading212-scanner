@@ -51,14 +51,17 @@ def preflight(args) -> int:
         print(_line("Données actions", KO, "échantillon indisponible"))
         failures += 1
 
+    # L'IA n'est qu'un second avis : elle peut objecter, jamais decider. Une
+    # panne Cloudflare degrade le rapport, elle n'annule pas l'analyse. Faire
+    # echouer le prefligt ici privait l'utilisateur de tout signal a cause d'un
+    # service optionnel.
     if ai_judge.configured():
         report = ai_judge.check_connectivity()
-        state = OK if report["connected"] else KO
+        state = OK if report["connected"] else WARN
         detail = (f"modèle {report['model']}, HTTP {report['http']}, "
                   f"verdict {report.get('verdict', '—')}")
         if not report["connected"]:
-            detail += f" — {report['error']}"
-            failures += 1
+            detail += f" — {report['error']} (second avis desactive)"
         print(_line("Cloudflare Workers AI", state, detail))
     else:
         print(_line("Cloudflare Workers AI", WARN, "secrets non fournis, IA désactivée"))
