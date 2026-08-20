@@ -222,3 +222,71 @@ class TestEmptySecretFallback(unittest.TestCase):
 
     def test_absent_variable_still_works(self):
         self.assertIn("stockscan", self._reload(None).DEFAULT_UA)
+
+
+class TestNoEnvDefaultTrap(unittest.TestCase):
+    """Le piège du secret vide, interdit dans TOUT le paquet.
+
+    `os.getenv("X", "valeur")` ne rend "valeur" que si X est ABSENTE. Dans une
+    GitHub Action, un secret non défini produit une variable PRÉSENTE et VIDE :
+    le défaut est ignoré. Ce piège a déjà coûté deux pannes réelles — un
+    User-Agent SEC vide, puis un modèle Cloudflare vide qui faisait répondre
+    HTTP 500. La forme correcte est `os.getenv("X", "").strip() or "valeur"`.
+
+    Ce test lit le code source plutôt qu'un cas particulier : il interdit la
+    forme dangereuse partout, y compris dans les modules écrits plus tard.
+    """
+
+    def _offenders(self):
+        import ast
+        import os
+        import stockscan
+
+        root = os.path.dirname(os.path.dirname(os.path.abspath(stockscan.__file__)))
+        targets = [os.path.join(root, "stockscan", name)
+                   for name in sorted(os.listdir(os.path.join(root, "stockscan")))
+                   if name.endswith(".py")]
+        targets += [os.path.join(root, name)
+                    for name in ("run_scan.py", "run_backtest.py")]
+
+        found = []
+        for path in targets:
+            if not os.path.isfile(path):
+                continue
+            with open(path, encoding="utf-8") as handle:
+                tree = ast.parse(handle.read(), filename=path)
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call) or len(node.args) != 2:
+                    continue
+                func = node.func
+                name = ""
+                if isinstance(func, ast.Attribute):
+                    if func.attr == "getenv" and isinstance(func.value, ast.Name) \
+                            and func.value.id == "os":
+                        name = "os.getenv"
+                    elif func.attr == "get" and isinstance(func.value, ast.Attribute) \
+                            and func.value.attr == "environ":
+                        name = "os.environ.get"
+                if not name:
+                    continue
+                default = node.args[1]
+                if isinstance(default, ast.Constant) and isinstance(default.value, str) \
+                        and default.value != "":
+                    found.append(f"{os.path.basename(path)}:{node.lineno} "
+                                 f"{name}(..., {default.value!r})")
+        return found
+
+    def test_no_module_relies_on_a_non_empty_env_default(self):
+        offenders = self._offenders()
+        self.assertEqual(offenders, [], "Forme dangereuse — utiliser "
+                                        '`os.getenv("X", "").strip() or "valeur"` :\n'
+                                        + "\n".join(offenders))
+
+    def test_the_detector_actually_detects(self):
+        """Un test qui ne peut pas échouer ne protège rien : on vérifie l'outil."""
+        import ast
+        tree = ast.parse('import os\nx = os.getenv("A", "piege")\n')
+        calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
+        self.assertEqual(len(calls), 1)
+        self.assertIsInstance(calls[0].args[1], ast.Constant)
+        self.assertEqual(calls[0].args[1].value, "piege")
