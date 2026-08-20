@@ -1,0 +1,47 @@
+name: Forex Backtest H1 — 2 ans + spread
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'forex_backtest_h1.py'
+      - '.github/workflows/forex_backtest_h1.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: forex-backtest-h1
+  cancel-in-progress: true
+
+jobs:
+  backtest-h1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+      - name: Validate
+        run: python -m py_compile forex_backtest_h1.py forex_backtest_h1_summary.py forex_backtest_v2.py forex_intraday_scanner_v3.py forex_quality.py run_forex_v7.py
+      - name: Run H1 backtest
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: python forex_backtest_h1.py
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forex-backtest-h1
+          path: backtest_results_h1.json
+          if-no-files-found: warn
+      - name: Summary
+        if: always()
+        run: python forex_backtest_h1_summary.py
