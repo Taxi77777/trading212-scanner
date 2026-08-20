@@ -187,3 +187,38 @@ class TestBacktestSplit(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestEmptySecretFallback(unittest.TestCase):
+    """Un secret GitHub non défini donne une variable PRÉSENTE et VIDE.
+
+    `os.environ.get(nom, defaut)` ne rend le défaut que si la variable est
+    absente. En production l'en-tête User-Agent partait donc vide, et SEC EDGAR
+    refuse toute requête sans User-Agent : les fondamentaux auraient été
+    silencieusement indisponibles pour toutes les valeurs américaines.
+    """
+
+    def _reload(self, value):
+        import importlib
+        import os
+        import sys
+        if value is None:
+            os.environ.pop("SEC_USER_AGENT", None)
+        else:
+            os.environ["SEC_USER_AGENT"] = value
+        sys.modules.pop("stockscan.fundamentals", None)
+        module = importlib.import_module("stockscan.fundamentals")
+        os.environ.pop("SEC_USER_AGENT", None)
+        return module
+
+    def test_an_empty_secret_falls_back_to_a_real_agent(self):
+        self.assertIn("stockscan", self._reload("").DEFAULT_UA)
+
+    def test_whitespace_only_is_also_empty(self):
+        self.assertIn("stockscan", self._reload("   ").DEFAULT_UA)
+
+    def test_a_real_value_is_respected(self):
+        self.assertEqual(self._reload("mon-agent/2.0").DEFAULT_UA, "mon-agent/2.0")
+
+    def test_absent_variable_still_works(self):
+        self.assertIn("stockscan", self._reload(None).DEFAULT_UA)
