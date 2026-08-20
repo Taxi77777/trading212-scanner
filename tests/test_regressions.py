@@ -148,7 +148,10 @@ class TestStructuralRewardToRisk(unittest.TestCase):
     monde et le filtre min_rr ne pouvait rien filtrer."""
 
     def _plan(self, closes, **kw):
-        bars = synth.build(closes)
+        # Volume realiste : sans assechement ni accumulation, la nouvelle regle
+        # refuse la configuration en amont et aucun plan n'est produit.
+        bars = synth.build(closes, synth.volumes_for(closes,
+                                                     dry_from=int(len(closes) * 0.75)))
         base = st.detect_base(bars)
         res = st.nearest_above(st.find_resistances(bars), bars.close[-1])
         phase = ph.classify(bars, base=base, resistance=res,
@@ -159,15 +162,22 @@ class TestStructuralRewardToRisk(unittest.TestCase):
         return ph.risk_plan(bars, phase=phase, base=base, resistance=res, **kw)
 
     def test_two_structures_give_two_different_ratios(self):
-        thin = self._plan(synth.rally_then_flat_base(base=70, tight=0.004))
-        deep = self._plan(synth.tightening_base())
+        thin = self._plan(synth.tightening_base())
+        deep = self._plan(synth.deep_tightening_base())
         self.assertNotAlmostEqual(thin.rr, deep.rr, places=1)
 
     def test_the_gate_can_actually_reject(self):
-        loose = self._plan(synth.tightening_base(), min_rr=2.0)
-        strict = self._plan(synth.tightening_base(), min_rr=99.0)
+        loose = self._plan(synth.deep_tightening_base(), min_rr=2.0)
+        strict = self._plan(synth.deep_tightening_base(), min_rr=99.0)
         self.assertTrue(loose.tradeable)
         self.assertFalse(strict.tradeable)
+
+    def test_the_gate_can_also_accept_and_refuse_the_same_day(self):
+        """Le meme seuil doit trier : accepter l'un, refuser l'autre."""
+        payant = self._plan(synth.deep_tightening_base(), min_rr=2.0)
+        insuffisant = self._plan(synth.tightening_base(), min_rr=2.0)
+        self.assertTrue(payant.tradeable)
+        self.assertFalse(insuffisant.tradeable)
 
 
 class TestBacktestSplit(unittest.TestCase):

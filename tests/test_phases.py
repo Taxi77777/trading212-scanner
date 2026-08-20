@@ -10,6 +10,11 @@ from tests import synth
 
 
 def _inputs(closes, volumes=None):
+    # Volume par defaut REALISTE : dans une vraie base, le volume s'asseche.
+    # Les fixtures a volume plat faisaient passer des bases sans aucune preuve
+    # d'interet acheteur — exactement ce que la pre-cassure doit refuser.
+    if volumes is None:
+        volumes = synth.volumes_for(closes, dry_from=int(len(closes) * 0.75))
     bars = synth.build(closes, volumes)
     base = st.detect_base(bars)
     res = st.find_resistances(bars)
@@ -61,6 +66,27 @@ class TestClassify(unittest.TestCase):
         bars, kw = _inputs(closes)
         phase = ph.classify(bars, **kw)
         self.assertNotEqual(phase.name, ph.PRE_BREAKOUT, phase.reasons)
+
+    def test_a_base_without_volume_evidence_is_refused(self):
+        """Une base sans assechement ni accumulation n'est pas une pre-cassure.
+
+        L'ancienne regle acceptait toute valeur collee sous une resistance, sans
+        exiger la moindre trace d'interet acheteur : une valeur sur quatre du
+        marche etait classee « pre-cassure ». Une configuration frequente a ce
+        point ne vaut rien.
+        """
+        closes = synth.tightening_base()
+        plat = [1_000_000.0] * len(closes)          # volume rigoureusement plat
+        bars, kw = _inputs(closes, plat)
+        self.assertFalse(kw["volume"].dry_up)
+        self.assertLess(kw["accum"].score, 4.0)
+        self.assertEqual(ph.classify(bars, **kw).name, ph.NO_TRADE)
+
+    def test_the_same_base_with_volume_evidence_is_accepted(self):
+        """Meme geometrie, volume qui s'asseche : la configuration existe."""
+        bars, kw = _inputs(synth.tightening_base())
+        phase = ph.classify(bars, **kw)
+        self.assertIn(phase.name, (ph.PRE_BREAKOUT, ph.EARLY), phase.reasons)
 
     def test_downtrend_is_no_trade(self):
         bars, kw = _inputs(synth.downtrend(300))
@@ -172,17 +198,17 @@ class TestRiskPlan(unittest.TestCase):
     def test_reward_to_risk_comes_from_the_chart_not_from_arithmetic(self):
         """Le defaut corrige : T1 = entree + 2R rendait rr constant a 2,00.
 
-        Deux structures differentes doivent produire deux R:R differents, sinon
-        le filtre min_rr ne filtre rien.
+        Deux structures differentes doivent produire deux R:R differents, et le
+        filtre doit pouvoir accepter comme refuser. Un filtre qui ne sait que
+        refuser ne demontre rien.
         """
-        _, thin = self._plan(synth.rally_then_flat_base(base=70, tight=0.004))
-        _, deep = self._plan(synth.tightening_base())
+        _, thin = self._plan(synth.tightening_base())
+        _, deep = self._plan(synth.deep_tightening_base())
         self.assertNotAlmostEqual(thin.rr, deep.rr, places=1)
         self.assertLess(thin.rr, 2.0)
-        self.assertGreater(deep.rr, 2.0)
         self.assertFalse(thin.tradeable)
+        self.assertGreater(deep.rr, 2.0)
         self.assertTrue(deep.tradeable)
-
     def test_a_paper_thin_base_cannot_pay_for_its_own_risk(self):
         _, plan = self._plan(synth.rally_then_flat_base(base=70, tight=0.004))
         self.assertFalse(plan.tradeable)

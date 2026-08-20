@@ -75,7 +75,7 @@ def rally_then_flat_base(rally=200, base=60, start=40.0, top=90.0, tight=0.004,
 
 
 def tightening_base(rally=220, base=70, start=40.0, top=90.0, depth=0.10,
-                    rally_wobble=0.030):
+                    rally_wobble=0.030, decay=0.88):
     """Base realiste : profonde au debut, qui se resserre vers la fin.
 
     Les bases reelles font 8 a 15 % de profondeur, pas 1 %. Une base minuscule
@@ -95,8 +95,8 @@ def tightening_base(rally=220, base=70, start=40.0, top=90.0, depth=0.10,
     for i in range(1, bridge + 1):
         out.append(last + (level - last) * i / bridge)
     for i in range(base - bridge):
-        decay = 1.0 - (i / max(1, base - bridge)) * 0.88
-        out.append(level * (1 + depth * 0.5 * decay * math.sin(i / 5.0)))
+        shrink = 1.0 - (i / max(1, base - bridge)) * decay
+        out.append(level * (1 + depth * 0.5 * shrink * math.sin(i / 5.0)))
     return out
 
 
@@ -131,3 +131,16 @@ def volumes_for(closes, base_vol=1_000_000.0, dry_from=None, surge_last=0):
         if k <= len(out):
             out[-k] *= 2.4
     return out
+
+
+def deep_tightening_base(**kw):
+    """Base profonde qui se resserre fort : le cas ou l'objectif paie le risque.
+
+    L'objectif vient de la HAUTEUR de la base ; le stop, de l'agitation RECENTE.
+    Quand une base profonde se calme vraiment, les deux divergent et le R:R
+    depasse 2. Sans une telle fixture, on ne peut prouver que le filtre `min_rr`
+    sait accepter — seulement qu'il sait refuser, ce qui ne demontre rien.
+    """
+    kw.setdefault("depth", 0.22)
+    kw.setdefault("decay", 0.96)
+    return tightening_base(**kw)
