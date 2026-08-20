@@ -21,7 +21,7 @@ from . import phases as ph
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 API = "https://api.telegram.org/bot{token}/sendMessage"
-TIMEOUT = float(os.getenv("TELEGRAM_TIMEOUT", "20"))
+TIMEOUT = float(os.getenv("TELEGRAM_TIMEOUT", "").strip() or "20")
 LIMIT = 3800                      # Telegram coupe à 4096 ; on garde une marge
 
 MEDALS = ("🥇", "🥈", "🥉")

@@ -29,9 +29,15 @@ import requests
 CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
 CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
 CLOUDFLARE_GATEWAY_ID = os.getenv("CLOUDFLARE_GATEWAY_ID", "").strip()
-CLOUDFLARE_MODEL = os.getenv("CLOUDFLARE_MODEL", "@cf/qwen/qwen3-30b-a3b-fp8").strip()
-AI_TIMEOUT = float(os.getenv("AI_TIMEOUT", "25"))
-AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "700"))
+# Un secret GitHub non defini donne une variable PRESENTE et VIDE : le defaut
+# de os.getenv ne s'applique alors pas et le modele partait vide, ce qui fait
+# repondre HTTP 500 a Cloudflare. Le "or" rattrape les deux cas.
+CLOUDFLARE_MODEL = (os.getenv("CLOUDFLARE_MODEL", "").strip()
+                    or "@cf/qwen/qwen3-30b-a3b-fp8")
+# Meme piege, en pire : `float("")` leve une exception a l'import et le module
+# entier devient inchargeable. Une variable definie mais vide suffisait.
+AI_TIMEOUT = float(os.getenv("AI_TIMEOUT", "").strip() or "25")
+AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "").strip() or "700")
 
 SOURCE_NAME = f"Cloudflare Workers AI / {CLOUDFLARE_MODEL}"
 
