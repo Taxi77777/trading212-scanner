@@ -176,3 +176,48 @@ class TestAggregate(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestChronologicalOrder(unittest.TestCase):
+    """Le drawdown se lit sur une courbe de capital, donc dans l'ordre du temps.
+
+    Les trades sont produits valeur par valeur : sans tri, la « pire série »
+    décrivait un compte où l'on aurait fini de trader la première action avant
+    d'ouvrir la seconde. Le chiffre publié était trois fois trop grand.
+    """
+
+    def _alternes(self):
+        gagnants = [bt.Trade(ticker="A", phase="X", r_multiple=2.0, entry_ts=t,
+                             period=bt.TRAIN) for t in (10, 30, 50)]
+        perdants = [bt.Trade(ticker="B", phase="X", r_multiple=-1.0, entry_ts=t,
+                             period=bt.TRAIN) for t in (20, 40, 60)]
+        return gagnants + perdants
+
+    def test_trades_are_reordered_by_date(self):
+        result = bt.aggregate(self._alternes())
+        self.assertEqual([t.entry_ts for t in result.trades], [10, 20, 30, 40, 50, 60])
+
+    def test_the_drawdown_uses_the_real_sequence(self):
+        brut = stats.max_drawdown([t.r_multiple for t in self._alternes()])
+        result = bt.aggregate(self._alternes())
+        self.assertLess(abs(result.overall.max_drawdown_r), abs(brut))
+        self.assertAlmostEqual(result.overall.max_drawdown_r, -1.0)
+
+    def test_order_independent_statistics_are_unchanged(self):
+        """L'espérance et le profit factor ne dépendent pas de l'ordre : le tri
+        ne doit rien changer pour eux."""
+        result = bt.aggregate(self._alternes())
+        self.assertAlmostEqual(result.overall.expectancy, 0.5)
+        self.assertAlmostEqual(result.overall.profit_factor, 2.0)
+
+    def test_walk_stamps_real_timestamps(self):
+        closes = _long_series()
+        vols = synth.volumes_for(closes, dry_from=int(len(closes) * 0.75))
+        bars = synth.build(closes, vols)
+        bench = synth.build(synth.uptrend(len(closes), daily=0.0004))
+        trades = bt.walk(bars, bench, step=5, min_score=40.0)
+        if not trades:
+            self.skipTest("aucun trade sur cette serie")
+        for t in trades:
+            self.assertEqual(t.entry_ts, bars.ts[t.entry_index])
+            self.assertGreaterEqual(t.exit_ts, t.entry_ts)
