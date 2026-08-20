@@ -49,6 +49,8 @@ class Config:
     per_second: float = 6.0
     use_ai: bool = True
     use_fundamentals: bool = True
+    max_correlation: float = 0.75
+    max_per_cluster: int = 2
 
 
 def _benchmark_bars(data: md.MarketData, symbols) -> dict[str, md.Bars]:
@@ -79,11 +81,15 @@ def measure(stock: uni.Stock, bars: md.Bars, bench: md.Bars | None,
     c.comp = st.compression(bars)
     c.ext = st.extension(bars)
     c.rs = sg.relative_strength(bars, bench)
+    c.absolute = sg.absolute_strength(bars)
     c.phase = ph.classify(bars, base=c.base, resistance=c.resistance, comp=c.comp,
                           volume=c.volume, accum=c.accum, ext=c.ext, trend=c.trend)
+    # Le score note la proximite depuis le MEME niveau que la phase.
+    pivot = ph.pivot_level(c.base, c.resistance)
     c.score = sc.score(trend=c.trend, base=c.base, volume=c.volume, accum=c.accum,
-                       comp=c.comp, rs=c.rs, resistance=c.resistance, ext=c.ext,
-                       price=c.price)
+                       comp=c.comp, rs=c.rs, absolute=c.absolute,
+                       resistance=c.resistance, ext=c.ext, price=c.price,
+                       pivot=pivot)
     return c
 
 
@@ -147,6 +153,24 @@ def run(config: Config | None = None, *, data: md.MarketData | None = None,
             and c.score.total >= cfg.min_score
             and (c.phase.name != ph.PRE_BREAKOUT or c.score.prebreakout >= cfg.min_prebreakout)]
     keep.sort(key=rank_key)
+
+    # Trois banques ne font pas trois signaux. On ecarte les doublons
+    # economiques AVANT de couper au top N, sinon la coupe garderait
+    # mecaniquement le meme pari repete.
+    series = {c.ticker: b for _s, b, c in measured}
+    # L'indice de chaque valeur, pour retirer le beta de marche : sans cela
+    # deux titres sans rapport paraissent jumeaux parce qu'ils suivent la meme
+    # place, et le plafond ecarte presque tout le monde.
+    marches = {c.ticker: bench.get(s.market.index_symbol)
+               for s, _b, c in measured}
+    keep, dropped = sg.limit_concentration(keep, series, marches,
+                                           max_corr=cfg.max_correlation,
+                                           max_per_cluster=cfg.max_per_cluster)
+    for candidate, corr, kept_first in dropped:
+        summary.notes.append(
+            f"{candidate.ticker} écartée — corrélée à {corr:.2f} avec "
+            f"{kept_first.ticker}, déjà retenue")
+    summary.dropped_correlated = len(dropped)
     shortlist = keep[:cfg.top]
 
     if cfg.use_fundamentals:
@@ -180,7 +204,9 @@ def _apply_fundamentals(candidates: list[Candidate]) -> None:
         if c.fundamental.available and c.fundamental.score is not None:
             c.score = sc.score(trend=c.trend, base=c.base, volume=c.volume,
                                accum=c.accum, comp=c.comp, rs=c.rs,
-                               resistance=c.resistance, ext=c.ext, price=c.price,
+                               absolute=c.absolute, resistance=c.resistance,
+                               ext=c.ext, price=c.price,
+                               pivot=ph.pivot_level(c.base, c.resistance),
                                fundamental=c.fundamental.score)
 
 

@@ -33,6 +33,7 @@ class Candidate:
     comp: st.Compression = field(default_factory=st.Compression)
     ext: st.Extension = field(default_factory=st.Extension)
     rs: sg.RelativeStrength = field(default_factory=sg.RelativeStrength)
+    absolute: sg.AbsoluteStrength = field(default_factory=sg.AbsoluteStrength)
     regime: sg.MarketRegime | None = None
     fundamental: Any = None
 
@@ -64,5 +65,6 @@ class ScanSummary:
     counts: dict[str, int] = field(default_factory=dict)
     kept: int = 0
     blocked_by_ai: int = 0
+    dropped_correlated: int = 0
     duration_s: float = 0.0
     notes: list[str] = field(default_factory=list)

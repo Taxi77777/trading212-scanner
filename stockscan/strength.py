@@ -15,6 +15,8 @@ transforme pas un NON en OUI.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import sqrt
+from statistics import fmean
 
 from . import market_data as md
 
@@ -241,3 +243,197 @@ def breadth(above_ma50: int, total: int) -> float | None:
     if total <= 0:
         return None
     return above_ma50 / total * 100.0
+
+
+# --------------------------------------------------------------------------
+# Force ABSOLUE — sans indice de référence
+# --------------------------------------------------------------------------
+@dataclass
+class AbsoluteStrength:
+    """Force mesurée sur la valeur seule, sans la comparer à quoi que ce soit.
+
+    La force relative punit mécaniquement toute action dont l'indice monte fort :
+    à comportement identique, une valeur perdait près de 10 points sur 100 selon
+    la vigueur de sa place de cotation. Une action qui suit un indice qui explose
+    n'est pas plus faible qu'une action qui bat un indice à plat.
+
+    On mesure donc aussi la force en soi : la distance au plus haut annuel, et un
+    momentum rapporté à la volatilité propre du titre — deux quantités qui ne
+    dépendent d'aucune référence extérieure et qui se calculent aussi bien dans
+    le scan que dans le backtest.
+    """
+    from_high_pct: float = 0.0        # distance au plus haut 52 semaines
+    change_3m: float = 0.0
+    change_6m: float = 0.0
+    risk_adjusted_3m: float = 0.0     # progression rapportée au bruit du titre
+    risk_adjusted_6m: float = 0.0
+    score: float = 0.0                # 0 à 10
+    notes: list[str] = field(default_factory=list)
+    available: bool = False
+
+
+def absolute_strength(bars: md.Bars | None) -> AbsoluteStrength:
+    out = AbsoluteStrength()
+    if not bars or len(bars) < 130:
+        out.notes.append("Historique trop court pour juger la force propre")
+        return out
+
+    close = bars.close
+    price = close[-1]
+    year = close[-min(252, len(close)):]
+    high = max(year)
+    if high > 0:
+        out.from_high_pct = (price / high - 1.0) * 100.0
+
+    out.change_3m = md.pct_change(close, 63) or 0.0
+    out.change_6m = md.pct_change(close, 126) or 0.0
+
+    # Le bruit propre du titre : ATR en % du prix, etendu sur la periode.
+    atr_series = md.atr_pct_series(bars, 14)
+    atr_pct = fmean(atr_series[-20:]) if len(atr_series) >= 20 else 0.0
+    if atr_pct <= 0:
+        # Un titre sans la moindre volatilite n'est pas une action calme, c'est
+        # une cotation figee ou suspendue. On ne le note pas, on le signale.
+        out.notes.append("Aucune volatilité mesurable — cotation figée ?")
+        return out
+    out.risk_adjusted_3m = out.change_3m / (atr_pct * sqrt(63))
+    out.risk_adjusted_6m = out.change_6m / (atr_pct * sqrt(126))
+    out.available = True
+
+    score = 0.0
+    # La proximite du plus haut ne compte QUE si le titre a réellement progressé.
+    # Une ligne plate est en permanence a son plus haut annuel : sans cette
+    # condition elle marquait 6 sur 10 en « force » sans avoir bougé d'un cent.
+    if out.change_6m > 0:
+        if out.from_high_pct > -5:
+            score += 4.0
+            out.notes.append(f"À {abs(out.from_high_pct):.1f} % de son plus haut annuel")
+        elif out.from_high_pct > -15:
+            score += 2.5
+        elif out.from_high_pct > -25:
+            score += 1.0
+    elif out.from_high_pct < -25:
+        out.notes.append(f"À {abs(out.from_high_pct):.0f} % sous son plus haut annuel")
+
+    for value, label in ((out.risk_adjusted_3m, "3 mois"), (out.risk_adjusted_6m, "6 mois")):
+        if value >= 1.0:
+            score += 3.0
+        elif value >= 0.4:
+            score += 2.0
+        elif value >= 0.0:
+            score += 1.0
+        else:
+            score -= 1.0
+
+    if out.risk_adjusted_3m >= 1.0:
+        out.notes.append(f"Progression nette du bruit sur 3 mois ({out.risk_adjusted_3m:.1f}σ)")
+
+    out.score = max(0.0, min(10.0, score))
+    return out
+
+
+# --------------------------------------------------------------------------
+# Concentration
+# --------------------------------------------------------------------------
+def returns(bars: md.Bars | None, lookback: int = 126) -> list[float]:
+    if not bars or len(bars) < 30:
+        return []
+    close = bars.close[-(lookback + 1):]
+    out = []
+    for older, newer in zip(close, close[1:]):
+        out.append((newer / older - 1.0) if older > 0 else 0.0)
+    return out
+
+
+def correlation(a: list[float], b: list[float]) -> float | None:
+    """Corrélation de Pearson sur les rendements quotidiens appariés."""
+    n = min(len(a), len(b))
+    if n < 40:
+        return None
+    a, b = a[-n:], b[-n:]
+    ma, mb = fmean(a), fmean(b)
+    num = sum((x - ma) * (y - mb) for x, y in zip(a, b))
+    da = sqrt(sum((x - ma) ** 2 for x in a))
+    db = sqrt(sum((y - mb) ** 2 for y in b))
+    if da == 0 or db == 0:
+        return None
+    return num / (da * db)
+
+
+def excess_returns(bars: md.Bars | None, bench: md.Bars | None,
+                   lookback: int = 126) -> list[float]:
+    """Rendements du titre MOINS ceux de son indice, appariés par date.
+
+    La corrélation brute entre deux actions est dominée par le bêta de marché :
+    deux valeurs sans le moindre rapport montent et descendent ensemble parce
+    qu'elles suivent le même indice. Mesurée ainsi, la parenté était fictive et
+    le plafond écartait presque tout le monde. En retirant le mouvement de
+    l'indice, il ne reste que la co-variation propre — celle qui signale un vrai
+    doublon économique.
+    """
+    if bench is None:
+        return returns(bars, lookback)
+    px, bx = align(bars, bench)
+    if len(px) < 41:
+        return []
+    px, bx = px[-(lookback + 1):], bx[-(lookback + 1):]
+    out = []
+    for (po, pn), (bo, bn) in zip(zip(px, px[1:]), zip(bx, bx[1:])):
+        r_stock = (pn / po - 1.0) if po > 0 else 0.0
+        r_bench = (bn / bo - 1.0) if bo > 0 else 0.0
+        out.append(r_stock - r_bench)
+    return out
+
+
+def limit_concentration(ranked, series, benchmarks=None, *, max_corr: float = 0.75,
+                        max_per_cluster: int = 2):
+    """Écarte les doublons économiques d'une sélection déjà classée.
+
+    Trois banques ne font pas trois signaux : elles font un seul pari décliné
+    trois fois. Le scanner Forex avait produit dix signaux qui étaient en
+    réalité le même — « vendre une valeur refuge » — et aucun n'a fonctionné.
+
+    Faute de données sectorielles fiables (Yahoo renvoie 401 sur les profils,
+    EDGAR ne couvre que les États-Unis), la parenté est mesurée là où elle se
+    voit vraiment : la corrélation des rendements quotidiens. Deux titres qui
+    montent et descendent ensemble portent le même risque, quel que soit le
+    secteur que leur attribue une base de données.
+
+    La parenté est mesurée sur les rendements EXCÉDENTAIRES (titre moins son
+    indice) : sans cela le bêta de marché ferait passer pour jumelles deux
+    valeurs qui n'ont rien à voir.
+
+    `ranked` est parcouru dans l'ordre : le mieux classé garde sa place.
+    Renvoie (gardés, écartés) — jamais une liste tronquée en silence.
+    """
+    benchmarks = benchmarks or {}
+
+    def serie(candidate):
+        ticker = getattr(candidate, "ticker", "")
+        return excess_returns(series.get(ticker), benchmarks.get(ticker))
+
+    kept, dropped = [], []
+    clusters: list[list] = []
+    for candidate in ranked:
+        mine = serie(candidate)
+        placed = False
+        for cluster in clusters:
+            corr = None
+            for member in cluster:
+                value = correlation(mine, serie(member))
+                if value is not None and value >= max_corr:
+                    corr = value
+                    break
+            if corr is None:
+                continue
+            placed = True
+            if len(cluster) < max_per_cluster:
+                cluster.append(candidate)
+                kept.append(candidate)
+            else:
+                dropped.append((candidate, corr, cluster[0]))
+            break
+        if not placed:
+            clusters.append([candidate])
+            kept.append(candidate)
+    return kept, dropped

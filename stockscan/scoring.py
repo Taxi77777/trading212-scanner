@@ -64,7 +64,12 @@ class Score:
 WEIGHTS = {
     "trend": 15.0,
     "base": 18.0,
-    "relative": 20.0,
+    # Les 20 points de force sont SCINDES. La force relative punit mecaniquement
+    # toute action dont l'indice monte fort : a comportement identique, une
+    # valeur perdait pres de 10 points sur 100 selon la vigueur de sa place.
+    # La moitie des points va donc a une mesure sans reference.
+    "relative": 10.0,
+    "absolute": 10.0,
     "volume": 15.0,
     "accumulation": 14.0,
     "compression": 10.0,
@@ -75,6 +80,7 @@ LABELS = {
     "trend": "Tendance de fond",
     "base": "Structure / base",
     "relative": "Force relative",
+    "absolute": "Force propre",
     "volume": "Volume",
     "accumulation": "Accumulation",
     "compression": "Compression",
@@ -93,24 +99,27 @@ def grade_for(total: float) -> str:
     return GRADE_D
 
 
-def proximity_score(resistance: st.Resistance | None, price: float) -> tuple[float, list[str]]:
+def proximity_score(resistance: st.Resistance | None, price: float,
+                    pivot: float | None = None) -> tuple[float, list[str]]:
     """0 à 10. Le maximum est atteint juste sous une résistance éprouvée.
 
     Loin de la résistance il n'y a rien à anticiper ; au-dessus, ce n'est plus
     une pré-cassure mais une cassure — un autre cas, traité ailleurs.
     """
-    if resistance is None or price <= 0 or resistance.level <= 0:
+    level = pivot if (pivot is not None and pivot > 0) else (
+        resistance.level if resistance is not None else 0.0)
+    if level <= 0 or price <= 0:
         return 0.0, ["Aucune résistance identifiée au-dessus du cours"]
-    dist = (resistance.level / price - 1.0) * 100.0
+    dist = (level / price - 1.0) * 100.0
     why: list[str] = []
     if dist < 0:
-        return 2.0, [f"Cours déjà au-dessus du niveau {resistance.level:.2f}"]
+        return 2.0, [f"Cours déjà au-dessus du niveau {level:.2f}"]
     if dist <= 3:
         base = 10.0
-        why.append(f"À {dist:.1f} % de la résistance {resistance.level:.2f} — collée dessous")
+        why.append(f"À {dist:.1f} % de la résistance {level:.2f} — collée dessous")
     elif dist <= 6:
         base = 8.0
-        why.append(f"À {dist:.1f} % de la résistance {resistance.level:.2f}")
+        why.append(f"À {dist:.1f} % de la résistance {level:.2f}")
     elif dist <= 10:
         base = 5.0
         why.append(f"À {dist:.1f} % de la résistance — encore du chemin")
@@ -120,8 +129,8 @@ def proximity_score(resistance: st.Resistance | None, price: float) -> tuple[flo
     else:
         base = 0.0
         why.append(f"À {dist:.1f} % de la résistance — hors sujet")
-    quality_bonus = min(1.5, resistance.quality / 10.0 * 1.5)
-    if resistance.tests >= 3:
+    quality_bonus = min(1.5, (resistance.quality if resistance else 0.0) / 10.0 * 1.5)
+    if resistance is not None and resistance.tests >= 3:
         why.append(f"Niveau testé {resistance.tests} fois — il compte")
     return min(10.0, base * 0.85 + quality_bonus), why
 
@@ -129,7 +138,8 @@ def proximity_score(resistance: st.Resistance | None, price: float) -> tuple[flo
 def prebreakout_score(*, base: st.Base, volume: st.VolumeProfile,
                       accum: st.Accumulation, comp: st.Compression,
                       resistance: st.Resistance | None, price: float,
-                      ext: st.Extension) -> tuple[float, list[str]]:
+                      ext: st.Extension,
+                      pivot: float | None = None) -> tuple[float, list[str]]:
     """0 à 100 — la probabilité que la cassure soit proche, pas qu'elle réussisse."""
     why: list[str] = []
     total = 0.0
@@ -138,7 +148,7 @@ def prebreakout_score(*, base: st.Base, volume: st.VolumeProfile,
     if comp.detected:
         why.append(f"Volatilité comprimée (ATR {comp.ratio:.2f}× sa référence)")
 
-    prox, prox_why = proximity_score(resistance, price)
+    prox, prox_why = proximity_score(resistance, price, pivot)
     total += prox / 10.0 * 25.0
     why += prox_why
 
@@ -174,15 +184,20 @@ def score(*, trend: st.TrendState, base: st.Base, volume: st.VolumeProfile,
           accum: st.Accumulation, comp: st.Compression,
           rs: sg.RelativeStrength, resistance: st.Resistance | None,
           ext: st.Extension, price: float,
+          absolute: sg.AbsoluteStrength | None = None,
+          pivot: float | None = None,
           sector_rs: sg.RelativeStrength | None = None,
           fundamental: float | None = None) -> Score:
     out = Score()
 
-    prox, prox_why = proximity_score(resistance, price)
+    prox, prox_why = proximity_score(resistance, price, pivot)
     raw = {
         "trend": (trend.score, 10.0, list(trend.notes)),
         "base": (base.quality, 15.0, list(base.notes)),
         "relative": (rs.score, 15.0, list(rs.notes)),
+        "absolute": ((absolute.score if absolute else 0.0), 10.0,
+                     list(absolute.notes) if absolute else
+                     ["Force propre non calculée"]),
         "volume": (volume.score, 15.0, list(volume.notes)),
         "accumulation": (accum.score, 10.0, list(accum.notes)),
         "compression": (comp.score, 5.0, list(comp.notes)),
@@ -231,7 +246,7 @@ def score(*, trend: st.TrendState, base: st.Base, volume: st.VolumeProfile,
     out.total = max(0.0, min(100.0, total))
     out.prebreakout, pre_why = prebreakout_score(
         base=base, volume=volume, accum=accum, comp=comp,
-        resistance=resistance, price=price, ext=ext)
+        resistance=resistance, price=price, ext=ext, pivot=pivot)
     out.notes += pre_why
 
     out.grade = grade_for(out.total)

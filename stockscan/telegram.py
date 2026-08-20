@@ -84,6 +84,10 @@ def format_header(summary: Any) -> str:
     lines.append(line)
     if summary.blocked_by_ai:
         lines.append(f"<i>{summary.blocked_by_ai} écartée(s) par contradiction IA</i>")
+    dropped = getattr(summary, "dropped_correlated", 0)
+    if dropped:
+        lines.append(f"<i>{dropped} écartée(s) — trop corrélée(s) à une valeur "
+                     "déjà retenue</i>")
     return "\n".join(lines)
 
 
@@ -128,6 +132,9 @@ def format_candidate(c: Any, rank: int | None = None) -> str:
     if c.rs.available:
         lines.append(f"Force relative : {c.rs.rs_3m:+.1f} pts sur 3 mois "
                      f"vs {esc(c.benchmark_label)}")
+    if getattr(c, "absolute", None) is not None and c.absolute.available:
+        lines.append(f"Force propre : {c.absolute.score:.0f}/10 — "
+                     f"{abs(c.absolute.from_high_pct):.1f} % sous son plus haut annuel")
     for note in (c.volume.notes[:1] + c.accum.notes[:1] + c.comp.notes[:1]):
         lines.append(f"· {esc(note)}")
 

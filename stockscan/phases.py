@@ -82,6 +82,19 @@ def _pivot_before(bars: md.Bars, offset: int, lookback: int = 60) -> float | Non
     return max(seg) if seg else None
 
 
+def pivot_level(base: st.Base, resistance: st.Resistance | None) -> float:
+    """Le niveau a franchir. Une seule definition, partagee.
+
+    Le score et la phase doivent parler du MEME niveau : sinon le message
+    annonce « resistance encore a 8,4 % » tout en accordant les points de
+    proximite comme si elle etait a 1,9 %. Le sommet de la base prime, car
+    c'est lui qui bloque le cours ; a defaut, la resistance la plus proche.
+    """
+    if base.found and base.high > 0:
+        return base.high
+    return resistance.level if resistance is not None else 0.0
+
+
 def _recent_breakout(bars: md.Bars, *, window: int = BREAK_WINDOW):
     """Premiere seance ayant cloture franchement au-dessus du pivot.
 
@@ -148,31 +161,41 @@ def classify(bars: md.Bars | None, *, base: st.Base, resistance: st.Resistance |
         ph.label = PHASE_LABELS[ph.name]
         return ph
 
-    if resistance is not None and resistance.level > 0:
-        ph.pivot = resistance.level
-        ph.distance_to_pivot_pct = (price / resistance.level - 1.0) * 100.0
+    # Le niveau a franchir est le sommet de la BASE quand il y en a une : c'est
+    # lui qui bloque le cours. Prendre le sommet mineur le plus proche mettait
+    # presque toute valeur "a moins de 4 % d'une resistance" — un filtre qui ne
+    # filtre rien, d'ou 23 % du marche classe en pre-cassure.
+    level = pivot_level(base, resistance)
+    if level > 0:
+        ph.pivot = level
+        ph.distance_to_pivot_pct = (price / level - 1.0) * 100.0
     dist_below = -ph.distance_to_pivot_pct if ph.pivot else 999.0
 
     if ext.disqualifies_prebreakout:
         ph.name = ACCELERATION
         ph.reasons += ext.notes or ["Le titre a déjà fortement progressé"]
-    elif (base.found and ph.pivot and dist_below <= 7.0 and comp.detected
-          and trend.direction != st.BAISSIERE):
+    elif (base.found and ph.pivot and dist_below <= 6.0 and comp.detected
+          and trend.direction != st.BAISSIERE
+          and (volume.dry_up or accum.score >= 5)):
+        # Trois conditions, pas une : collee sous le niveau, volatilite
+        # comprimee, ET une pression acheteuse visible (volume qui s'asseche ou
+        # accumulation). L'ancienne seconde branche n'exigeait aucune
+        # compression et laissait passer une valeur sur quatre.
         ph.name = PRE_BREAKOUT
         ph.reasons.append(f"{base.label} sous {ph.pivot:.2f}, à {dist_below:.1f} %")
         ph.reasons.append(f"Volatilité comprimée ({comp.ratio:.2f}× la référence)")
-        if volume.dry_up:
-            ph.reasons.append("Volume asséché — pas de pression vendeuse")
-    elif (base.found and ph.pivot and dist_below <= 4.0
-          and trend.direction != st.BAISSIERE):
-        ph.name = PRE_BREAKOUT
-        ph.reasons.append(f"Cours collé sous {ph.pivot:.2f} ({dist_below:.1f} %) "
-                          "dans une consolidation")
-        ph.reasons.append("Compression non confirmée — surveiller")
-    elif base.found and accum.score >= 5 and trend.direction != st.BAISSIERE:
+        ph.reasons.append("Volume asséché — pas de pression vendeuse" if volume.dry_up
+                          else "OBV en accumulation sous la résistance")
+    elif base.found and trend.direction != st.BAISSIERE and accum.score >= 4:
+        # Phase d'accumulation du cycle : la base existe et se construit, mais
+        # il manque la compression ou la proximite. C'est une valeur a suivre,
+        # pas une valeur a acheter aujourd'hui.
         ph.name = EARLY
-        ph.reasons.append("Accumulation en cours, mais la résistance est encore loin "
-                          f"({dist_below:.1f} %)")
+        if dist_below > 6.0:
+            ph.reasons.append(f"Accumulation en cours, résistance encore à {dist_below:.1f} %")
+        else:
+            ph.reasons.append(f"Collée sous {ph.pivot:.2f} mais sans compression confirmée")
+        ph.reasons.append(f"Accumulation {accum.score:.0f}/10")
     else:
         ph.name = NO_TRADE
         if not base.found:

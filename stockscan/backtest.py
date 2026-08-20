@@ -150,9 +150,13 @@ def walk(bars: md.Bars, bench: md.Bars | None, *, ticker: str = "",
         if phase.name not in (ph.PRE_BREAKOUT, ph.BREAKOUT, ph.RETEST):
             continue
         rs = sg.relative_strength(seen, bench)
+        # La force propre est calculee ici aussi : sans elle le backtest
+        # mesurerait un systeme different de celui qui envoie les alertes.
+        absolute = sg.absolute_strength(seen)
         score = sc.score(trend=trend, base=base, volume=volume, accum=accum,
-                         comp=comp, rs=rs, resistance=resistance, ext=ext,
-                         price=seen.close[-1])
+                         comp=comp, rs=rs, absolute=absolute,
+                         resistance=resistance, ext=ext, price=seen.close[-1],
+                         pivot=ph.pivot_level(base, resistance))
         if score.total < min_score:
             continue
         plan = ph.risk_plan(seen, phase=phase, base=base, resistance=resistance,
