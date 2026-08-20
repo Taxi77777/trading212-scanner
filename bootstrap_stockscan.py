@@ -18,16 +18,16 @@ import tarfile
 
 LEGACY = ['central_bank_rates.py', 'company_names.py', 'daily_1h_longterm_scanner.py', 'daily_scanner.py', 'expanded_universe.py', 'forex_ai_judge.py', 'forex_ai_selftest.py', 'forex_backtest_h1.py', 'forex_backtest_h1_summary.py', 'forex_backtest_summary.py', 'forex_backtest_sweep.py', 'forex_backtest_sweep_summary.py', 'forex_backtest_v1.py', 'forex_backtest_v2.py', 'forex_intraday_scanner.py', 'forex_intraday_scanner_v2.py', 'forex_intraday_scanner_v3.py', 'forex_market_data.py', 'forex_preflight.py', 'forex_quality.py', 'forex_symbols.py', 'forex_v7_trigger.txt', 'free_market_data.py', 'index.html', 'institutional_macro_scanner.py', 'macro_engine.py', 'run_daily_1h_hotfix.py', 'run_forex_hotfix.py', 'run_forex_v3.py', 'run_forex_v3_rate_overlay.py', 'run_forex_v4.py', 'run_forex_v5.py', 'run_forex_v6.py', 'run_forex_v7.py', 'run_scanner_v2.py', 'scan_trigger.txt', 'scanner_v2.py', 'signal_state.json', 'telegram_signals.py', 'backtest_results_h1.json', 'backtest_results_v2.json', 'backtest_sweep.json', 'tests/synthetic.py', 'tests/test_exposure_and_intraday.py', 'tests/test_forex_ai_judge.py', 'tests/test_forex_quality.py', 'tests/test_forex_symbols.py', 'tests/test_pipeline.py', 'tests/test_scanner_engine.py']
 
+# Le jeton fourni par GitHub Actions n'a pas le droit de creer, modifier ni
+# supprimer un fichier sous .github/workflows/ : le push entier est rejete si
+# un seul y touche. Les workflows sont donc traites a la main, en dehors de ce
+# script. Ici on ne nettoie que ce qui n'est pas un workflow.
 LEGACY_WORKFLOWS = [
-    ".github/workflows/forex_backtest.yml",
-    ".github/workflows/forex_backtest_h1.yml",
-    ".github/workflows/forex_backtest_sweep.yml",
-    ".github/workflows/forex_backtest_v2.yml",
-    ".github/workflows/forex_signals.yml",
-    ".github/workflows/telegram_signals.yml",
     ".github/forex_cloudflare_test.txt",
     ".github/forex_trigger_20260819_2200.txt",
 ]
+
+WORKFLOW_DIR = ".github/workflows"
 
 PAYLOAD = """
 H4sIAAAAAAAAA+xaS3PbWHb2Gr/iFF2JqWmKFi3L7lbak8GLJEwQRAMgRcll0xAJ2WiDABsA1fJ0
@@ -1101,8 +1101,10 @@ AJgDAA==
 def main() -> int:
     raw = base64.b64decode("".join(PAYLOAD.split()))
     with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as tar:
-        tar.extractall(".")
-    print("archive déployée")
+        members = [m for m in tar.getmembers()
+                   if not m.name.lstrip("./").startswith(WORKFLOW_DIR)]
+        tar.extractall(".", members=members)
+    print("archive déployée (%d fichiers, workflows exclus)" % len(members))
 
     removed = []
     for path in LEGACY + LEGACY_WORKFLOWS:
@@ -1115,11 +1117,11 @@ def main() -> int:
     for path in removed:
         print("  -", path)
 
-    # Le script d'amorçage et son workflow n'ont plus de raison d'être.
-    for path in ("bootstrap_stockscan.py", ".github/workflows/bootstrap.yml"):
-        if os.path.isfile(path):
-            os.remove(path)
-            print("  -", path)
+    # Le script d'amorçage n'a plus de raison d'être. Son workflow, lui, ne
+    # peut pas être supprimé ici : il est sous .github/workflows/.
+    if os.path.isfile("bootstrap_stockscan.py"):
+        os.remove("bootstrap_stockscan.py")
+        print("  - bootstrap_stockscan.py")
 
     result = subprocess.run(["python", "-m", "unittest", "discover", "-t", ".",
                              "-s", "tests"], capture_output=True, text=True)
