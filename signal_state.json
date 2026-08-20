@@ -65,8 +65,8 @@
     "score": 70
   },
   "FXV3:CAD/CHF:BUY:SETUP": {
-    "sent_at": 1787210776.3505101,
-    "price": 0.5799499750137329,
+    "sent_at": 1787233655.5203323,
+    "price": 0.5797299742698669,
     "score": 45
   },
   "FXV3:AUD/CHF:BUY:ENTREE": {
@@ -110,13 +110,13 @@
     "score": 52
   },
   "FXV3:NZD/CHF:BUY:SETUP": {
-    "sent_at": 1787198902.5464883,
-    "price": 0.47597000002861023,
+    "sent_at": 1787233655.5203323,
+    "price": 0.47543999552726746,
     "score": 55
   },
   "FXV3:NZD/USD:BUY:SETUP": {
-    "sent_at": 1787217956.0458426,
-    "price": 0.5964096188545227,
+    "sent_at": 1787233655.5203323,
+    "price": 0.5956635475158691,
     "score": 76
   },
   "FXV3:GBP/AUD:BUY:SETUP": {
