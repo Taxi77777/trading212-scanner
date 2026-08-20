@@ -1,0 +1,39 @@
+name: Amorçage du scanner actions
+
+# Workflow à usage unique. Il déballe bootstrap_stockscan.py, supprime tout le
+# code Forex hérité, puis se supprime lui-même avec le script d'amorçage.
+# Aucun secret n'est utilisé ici : seul le jeton fourni par GitHub Actions sert
+# à écrire le commit.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Installer les dépendances
+        run: pip install requests
+
+      - name: Déployer et nettoyer
+        run: python bootstrap_stockscan.py
+
+      - name: Publier
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Rien à publier."
+            exit 0
+          fi
+          git commit -m "feat: scanner actions pré-cassure, suppression de la stratégie Forex"
+          git push
