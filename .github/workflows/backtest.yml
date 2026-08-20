@@ -1,0 +1,48 @@
+name: Backtest
+
+on:
+  workflow_dispatch:
+    inputs:
+      markets:
+        description: "Places (ex. US ou US,FR)"
+        required: false
+        default: "US"
+      limit:
+        description: "Nombre de valeurs"
+        required: false
+        default: "80"
+      step:
+        description: "Pas en séances entre deux évaluations"
+        required: false
+        default: "5"
+      min_score:
+        description: "Score minimal sur 100"
+        required: false
+        default: "55"
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Installer les dépendances
+        run: pip install -r requirements.txt
+      - name: Backtest
+        run: |
+          python run_backtest.py \
+            --markets "${{ github.event.inputs.markets || 'US' }}" \
+            --limit "${{ github.event.inputs.limit || '80' }}" \
+            --step "${{ github.event.inputs.step || '5' }}" \
+            --min-score "${{ github.event.inputs.min_score || '55' }}" \
+            --json backtest_results.json
+      - name: Conserver les résultats
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-results
+          path: backtest_results.json
+          if-no-files-found: ignore

@@ -1,0 +1,22 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unittest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Installer les dépendances
+        run: pip install -r requirements.txt
+      - name: Compiler tous les modules
+        run: python -m compileall -q stockscan run_scan.py run_backtest.py
+      - name: Suite de tests (hors ligne, aucun secret requis)
+        run: python -m unittest discover -t . -s tests -v

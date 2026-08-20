@@ -1,0 +1,80 @@
+name: Scanner actions pré-cassure
+
+on:
+  schedule:
+    # 22h00 UTC du lundi au vendredi : après la clôture européenne,
+    # la séance américaine du jour est complète chez Yahoo.
+    - cron: "0 22 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      markets:
+        description: "Places à scanner (ex. US,FR,DE) — vide = toutes"
+        required: false
+        default: ""
+      top:
+        description: "Nombre de valeurs retenues"
+        required: false
+        default: "5"
+      min_score:
+        description: "Score minimal sur 100"
+        required: false
+        default: "55"
+      dry_run:
+        description: "true = afficher sans envoyer sur Telegram"
+        required: false
+        default: "false"
+
+concurrency:
+  group: stock-scanner
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_GATEWAY_ID: ${{ secrets.CLOUDFLARE_GATEWAY_ID }}
+      CLOUDFLARE_MODEL: ${{ secrets.CLOUDFLARE_MODEL }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Installer les dépendances
+        run: pip install -r requirements.txt
+
+      - name: Tests hors ligne
+        run: python -m unittest discover -t . -s tests
+
+      # Le préflight ne dit jamais la valeur d'un secret, seulement s'il existe
+      # et si l'appel réel a abouti.
+      - name: Préflight (données, IA, Telegram, EDGAR)
+        run: python run_scan.py preflight
+
+      - name: Scan
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.markets }}" ]; then
+            ARGS="$ARGS --markets ${{ github.event.inputs.markets }}"
+          fi
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          python run_scan.py scan \
+            --top "${{ github.event.inputs.top || '5' }}" \
+            --min-score "${{ github.event.inputs.min_score || '55' }}" \
+            --json scan_report.json \
+            $ARGS
+
+      - name: Conserver le rapport
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-report
+          path: scan_report.json
+          if-no-files-found: ignore
