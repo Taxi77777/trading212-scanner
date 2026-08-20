@@ -23,9 +23,11 @@ from dataclasses import dataclass, field
 TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
 
-DEFAULT_UA = os.environ.get(
-    "SEC_USER_AGENT",
-    "stockscan/1.0 (open-source equity scanner; contact via GitHub repository)")
+# `os.environ.get` ne rend le defaut que si la variable est ABSENTE. Dans une
+# GitHub Action, un secret non defini donne une variable PRESENTE et VIDE :
+# l'en-tete partait vide et SEC EDGAR refuse les requetes sans User-Agent.
+DEFAULT_UA = (os.environ.get("SEC_USER_AGENT", "").strip()
+              or "stockscan/1.0 (open-source equity scanner; contact via GitHub repository)")
 
 QUARTER = (80, 100)
 YEAR = (350, 380)
