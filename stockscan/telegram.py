@@ -27,7 +27,16 @@ LIMIT = 3800                      # Telegram coupe à 4096 ; on garde une marge
 MEDALS = ("🥇", "🥈", "🥉")
 
 DISCLAIMER = ("Analyse statistique, pas un conseil d'investissement. "
-              "Aucun ordre n'est transmis à un courtier.")
+              "Aucun ordre n'est transmis à un courtier.\n"
+              "Sur la durée, environ 1 signal sur 3 gagne — mais les gains sont "
+              "plus gros que les pertes. L'avantage est réel et mince : il ne "
+              "se voit que sur des dizaines de trades, jamais sur un seul.")
+
+LEGENDE = ("<b>Comment lire</b>\n"
+           "L'ordre 🥇🥈🥉 est celui du système ; il n'a pas été prouvé qu'un mieux classé finit mieux.\n"
+           "« Sortie de secours » = le prix qui prouve que l'analyse est fausse. "
+           "S'y tenir est ce qui protège le capital.\n"
+           "L'objectif est un niveau lu sur le graphique, pas une prévision.")
 
 
 def configured() -> bool:
@@ -58,35 +67,39 @@ def _num(value: float | None, digits: int = 2) -> str:
 # --------------------------------------------------------------------------
 # Mise en forme
 # --------------------------------------------------------------------------
+REGIME_MOT = {"RISK_ON": "porteur", "NEUTRE": "hésitant", "RISK_OFF": "difficile"}
+
+
 def format_header(summary: Any) -> str:
+    """L'etat du marche en francais, pas en indicateurs.
+
+    « Régime RISK_ON 79/100 · 10 % des valeurs > MM50 · VIX 16.0 » ne dit rien
+    a qui n'est pas analyste. Le meme fait, dit simplement, se retient.
+    """
     reg = summary.regime
-    lines = [f"<b>📊 SCANNER PRÉ-CASSURE — {esc(summary.date)}</b>"]
+    lines = [f"<b>📊 SCANNER ACTIONS — {esc(summary.date)}</b>"]
     if reg is not None:
-        bits = [f"Régime <b>{esc(reg.label)}</b> {reg.score:.0f}/100"]
-        if summary.regime_label_market:
-            bits.append(esc(summary.regime_label_market))
+        mot = REGIME_MOT.get(reg.label, reg.label.lower())
+        ligne = f"Marché <b>{esc(mot)}</b>"
         if reg.breadth_pct is not None:
-            bits.append(f"{reg.breadth_pct:.0f} % des valeurs &gt; MM50")
-        if reg.vix is not None:
-            bits.append(f"VIX {reg.vix:.1f}")
-        lines.append(" · ".join(bits))
-        for note in reg.notes[:2]:
-            lines.append(f"<i>{esc(note)}</i>")
+            ligne += f" — {reg.breadth_pct:.0f} % des actions bien orientées"
+        lines.append(ligne)
+        if not reg.allow_new_positions:
+            lines.append("<b>Marché trop dégradé : aucune prise de risque conseillée.</b>")
+
     counts = summary.counts or {}
-    detail = " · ".join(f"{counts.get(name, 0)} {ph.PHASE_LABELS[name].lower()}"
-                        for name in (ph.PRE_BREAKOUT, ph.BREAKOUT, ph.RETEST, ph.EARLY)
-                        if counts.get(name))
-    line = f"{summary.analysed} valeurs analysées"
-    if detail:
-        line += f" · {detail}"
-    if summary.failed:
-        line += f" · {summary.failed} indisponibles"
-    lines.append(line)
+    retenues = summary.kept
+    mot = "signaux" if retenues > 1 else "signal"
+    lines.append(f"{summary.analysed} valeurs passées au crible · "
+                 f"<b>{retenues} {mot}</b>")
+    if counts.get(ph.NO_TRADE):
+        lines.append(f"<i>{counts[ph.NO_TRADE]} valeurs écartées : rien à y faire "
+                     "aujourd'hui</i>")
     if summary.blocked_by_ai:
-        lines.append(f"<i>{summary.blocked_by_ai} écartée(s) par contradiction IA</i>")
+        lines.append(f"<i>{summary.blocked_by_ai} écartée(s) par l'IA</i>")
     dropped = getattr(summary, "dropped_correlated", 0)
     if dropped:
-        lines.append(f"<i>{dropped} écartée(s) — trop corrélée(s) à une valeur "
+        lines.append(f"<i>{dropped} écartée(s) : trop ressemblante(s) à une autre "
                      "déjà retenue</i>")
     return "\n".join(lines)
 
@@ -103,77 +116,49 @@ def format_no_trade(summary: Any) -> str:
     return "\n".join(lines)
 
 
+# Traduction en francais courant de ce que le backtest a mesure. L'utilisateur
+# n'est pas analyste : il doit voir en un mot si le signal repose sur une mesure
+# ou sur une hypothese, sans avoir a interpreter un R-multiple.
+PHASE_PREUVE = {
+    "RETEST": "✅ Type de signal déjà validé",
+    "BREAKOUT": "🟡 Type de signal moyennement fiable",
+    "PRE_BREAKOUT": "❓ Type de signal pas encore prouvé",
+    "EARLY": "❓ Type de signal jamais testé",
+}
+
+
 def format_candidate(c: Any, rank: int | None = None) -> str:
-    medal = MEDALS[rank] if rank is not None and rank < len(MEDALS) else ""
-    head = f"{c.phase.emoji} <b>{esc(c.ticker)}</b>"
-    if medal:
-        head = f"{medal} {head}"
-    if c.market_label:
-        head += f" <i>({esc(c.market_label)})</i>"
+    """Six lignes, du francais courant, aucun jargon.
 
-    lines = [head,
-             f"<b>{esc(c.phase.label)}</b> · Score {c.score.total:.0f}/100 "
-             f"({esc(c.score.grade)}) · Pré-cassure {c.score.prebreakout:.0f}/100",
-             f"Cours {_num(c.price)} {esc(c.currency)}"]
+    La version precedente ouvrait sur le score, la tendance, la structure et la
+    force relative : vingt lignes avant d'arriver au prix. Un message qu'on ne
+    peut pas lire en trois secondes n'est pas une alerte, c'est un rapport - et
+    un rapport qu'on ne comprend pas ne sert a rien. Ici on garde uniquement ce
+    qui permet de decider : a quel prix, ou est la sortie, combien engager.
+    """
+    medal = MEDALS[rank] if rank is not None and rank < len(MEDALS) else "▪️"
+    lines = [f"{medal} <b>{esc(c.ticker)}</b> — {esc(c.market_label)}",
+             f"Cours actuel : <b>{_num(c.price)} {esc(c.currency)}</b>",
+             PHASE_PREUVE.get(c.phase.name, ""),
+             ""]
 
-    if c.phase.reasons:
-        lines.append("")
-        lines += [f"• {esc(r)}" for r in c.phase.reasons[:4]]
-
-    lines.append("")
-    lines.append("<b>Structure</b>")
-    lines.append(f"Tendance : {esc(c.trend.direction)} ({c.trend.score:.0f}/10)")
-    if c.base.found:
-        lines.append(f"Base : {esc(c.base.label)}, {c.base.length} séances, "
-                     f"amplitude {c.base.width_pct:.1f} %")
-    if c.resistance is not None:
-        lines.append(f"Résistance : {_num(c.resistance.level)} "
-                     f"(testée {c.resistance.tests}×, à {c.distance_pct:+.1f} %)")
-    if c.rs.available:
-        lines.append(f"Force relative : {c.rs.rs_3m:+.1f} pts sur 3 mois "
-                     f"vs {esc(c.benchmark_label)}")
-    if getattr(c, "absolute", None) is not None and c.absolute.available:
-        lines.append(f"Force propre : {c.absolute.score:.0f}/10 — "
-                     f"{abs(c.absolute.from_high_pct):.1f} % sous son plus haut annuel")
-    for note in (c.volume.notes[:1] + c.accum.notes[:1] + c.comp.notes[:1]):
-        lines.append(f"· {esc(note)}")
-
-    if c.fundamental is not None and getattr(c.fundamental, "available", False):
-        lines.append("")
-        lines.append(f"<b>Fondamentaux</b> {c.fundamental.score:.1f}/10")
-        for note in (c.fundamental.notes or [])[:3]:
-            lines.append(f"· {esc(note)}")
-
-    lines.append("")
     if c.plan.tradeable:
-        lines.append("<b>Plan (analyse — aucun ordre transmis)</b>")
-        lines.append(f"Entrée : {_num(c.plan.entry)} — {esc(c.plan.entry_kind)}")
-        lines.append(f"Invalidation : {_num(c.plan.stop)} (−{c.plan.risk_pct:.1f} %)")
-        lines.append(" · ".join(f"{esc(t.label)} {_num(t.price)} ({t.r_multiple:.1f}R)"
-                                for t in c.plan.targets))
-        lines.append("Objectifs = hauteur de la base reportée depuis le pivot")
-        lines.append(f"Taille indicative : {c.plan.position_pct:.1f} % du capital "
-                     "pour 1 % de risque")
+        cible = c.plan.targets[0] if c.plan.targets else None
+        lines.append(f"Entrée si le cours dépasse <b>{_num(c.plan.entry)}</b>")
+        lines.append(f"Sortie de secours à <b>{_num(c.plan.stop)}</b> "
+                     f"→ tu perds {c.plan.risk_pct:.1f} %")
+        if cible:
+            lines.append(f"Objectif <b>{_num(cible.price)}</b> "
+                         f"→ tu gagnes {cible.r_multiple:.1f} fois ce que tu risques")
+        lines.append(f"Ne pas engager plus de <b>{c.plan.position_pct:.0f} %</b> "
+                     "de ton capital")
     else:
         reason = c.plan.notes[0] if c.plan.notes else "structure insuffisante"
-        lines.append(f"<b>Pas de plan exploitable</b> — {esc(reason)}")
+        lines.append(f"<i>Pas de plan exploitable — {esc(reason)}</i>")
 
-    if c.ai:
+    if c.ai and c.ai.get("available") and c.ai.get("verdict") == "PRUDENCE":
         lines.append("")
-        if c.ai.get("available"):
-            lines.append(f"<b>IA (2ᵉ avis)</b> : {esc(c.ai.get('verdict'))} "
-                         f"{c.ai.get('confidence', 0)}% — {esc(c.ai.get('reason'))}")
-        else:
-            lines.append(f"<b>IA (2ᵉ avis)</b> : indisponible — "
-                         f"{esc(c.ai.get('reason', 'non contacté'))}")
-
-    detail = " · ".join(f"{esc(comp.label)} {comp.points:.0f}/{comp.weight:.0f}"
-                        for comp in c.score.components)
-    if detail:
-        lines.append("")
-        lines.append(f"<i>{detail}</i>")
-    for name, value in c.score.penalties:
-        lines.append(f"<i>Pénalité {esc(name)} −{value:.0f}</i>")
+        lines.append(f"<i>⚠️ {esc(c.ai.get('reason'))}</i>")
     return "\n".join(lines)
 
 
@@ -181,7 +166,7 @@ def build_report(summary: Any, candidates: list[Any]) -> list[str]:
     """Découpe le rapport en messages Telegram, sans jamais couper un candidat."""
     if not candidates:
         return [format_no_trade(summary)]
-    blocks = [format_header(summary)]
+    blocks = [format_header(summary), LEGENDE]
     blocks += [format_candidate(c, rank=i) for i, c in enumerate(candidates)]
     blocks.append(f"<i>{esc(DISCLAIMER)}</i>")
 
