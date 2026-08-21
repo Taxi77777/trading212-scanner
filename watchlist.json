@@ -73,5 +73,35 @@
     "triggered": true,
     "closed": false,
     "outcome": ""
+  },
+  {
+    "ticker": "MB",
+    "symbol": "MB.MI",
+    "name": "Mediobanca Banca di Credito Finanziario S.p.A.",
+    "market_label": "Borsa Italiana",
+    "currency": "EUR",
+    "phase": "RETEST",
+    "entry": 28.16,
+    "stop": 27.0342,
+    "target": 31.18,
+    "created_ts": 1787350460,
+    "triggered": false,
+    "closed": false,
+    "outcome": ""
+  },
+  {
+    "ticker": "PUIG",
+    "symbol": "PUIG.MC",
+    "name": "Puig Brands SA",
+    "market_label": "BME",
+    "currency": "EUR",
+    "phase": "RETEST",
+    "entry": 17.12,
+    "stop": 16.2917,
+    "target": 19.23,
+    "created_ts": 1787350460,
+    "triggered": false,
+    "closed": false,
+    "outcome": ""
   }
 ]
