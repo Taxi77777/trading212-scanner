@@ -70,7 +70,7 @@
     "stop": 58.1478,
     "target": 67.32,
     "created_ts": 1787316980,
-    "triggered": false,
+    "triggered": true,
     "closed": false,
     "outcome": ""
   }
