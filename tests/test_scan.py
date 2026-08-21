@@ -163,11 +163,21 @@ class TestTelegramFormatting(unittest.TestCase):
         finally:
             tg.BOT_TOKEN, tg.CHAT_ID = original
 
-    def test_a_plan_always_says_no_order_is_sent(self):
+    def test_the_report_always_says_no_order_is_sent(self):
+        """La mention doit figurer dans le message RECU, pas dans chaque bloc.
+
+        Elle a ete deplacee du bloc candidat vers le pied du rapport quand le
+        message a ete simplifie : la garantie porte sur ce que l'utilisateur
+        lit, pas sur un fragment interne.
+        """
         summary, kept = self._candidates()
-        for c in kept:
-            if c.plan.tradeable:
-                self.assertIn("aucun ordre", tg.format_candidate(c).lower())
+        blob = "\n".join(tg.build_report(summary, kept)).lower()
+        self.assertIn("aucun ordre", blob)
+        self.assertIn("pas un conseil d'investissement", blob)
+
+    def test_the_no_signal_message_says_it_too(self):
+        summary, _ = self._candidates()
+        self.assertIn("aucun ordre", tg.format_no_trade(summary).lower())
 
 
 if __name__ == "__main__":
