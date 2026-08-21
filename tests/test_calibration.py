@@ -274,3 +274,60 @@ class TestOnePivotOnly(unittest.TestCase):
                                 source="swing", quality=5.0)
         self.assertEqual(ph.pivot_level(st.Base(), mineure), 88.0)
         self.assertEqual(ph.pivot_level(st.Base(), None), 0.0)
+
+
+class TestLisibilite(unittest.TestCase):
+    """Ce que l'utilisateur lit doit être identifiable et exact."""
+
+    def test_a_london_price_is_never_shown_as_pounds(self):
+        """Londres cote en pence. « 1295 GBP » se lit mille livres au lieu de
+        treize : un facteur cent sur un message d'aide à la décision."""
+        from stockscan.telegram import _prix
+        rendu = _prix(1295.0, "GBp")
+        self.assertIn("pence", rendu)
+        self.assertIn("12.95", rendu)
+        self.assertNotIn("GBP", rendu)
+
+    def test_other_currencies_are_left_alone(self):
+        from stockscan.telegram import _prix
+        self.assertEqual(_prix(53.05, "EUR"), "53.05 EUR")
+        self.assertEqual(_prix(212.4, "USD"), "212.40 USD")
+
+    def test_bars_carry_name_and_currency_through_slicing(self):
+        from stockscan.market_data import Bars
+        b = Bars([1, 2, 3], [1, 2, 3], [1, 2, 3], [1, 2, 3], [1, 2, 3], [1, 2, 3],
+                 "Recordati SpA", "EUR")
+        for vue in (b.tail(2), b.head(2)):
+            self.assertEqual(vue.name, "Recordati SpA")
+            self.assertEqual(vue.currency, "EUR")
+
+    def test_bars_without_metadata_still_work(self):
+        from stockscan.market_data import Bars
+        b = Bars([1], [1], [1], [1], [1], [1])
+        self.assertEqual(b.name, "")
+        self.assertEqual(b.currency, "")
+
+    def test_the_message_shows_the_company_not_only_the_ticker(self):
+        from stockscan import telegram as tg
+        from stockscan import phases as ph2
+
+        class Faux:
+            ticker, name, market_label, currency = "REC", "Recordati SpA", "Milan", "EUR"
+            price = 53.05
+            phase = ph2.Phase(name=ph2.RETEST, label="Retest")
+            plan = ph2.RiskPlan()
+            score = sc.Score()
+            base = st.Base()
+            resistance = None
+            rs = sg.RelativeStrength()
+            absolute = sg.AbsoluteStrength()
+            trend = st.TrendState()
+            ai: dict = {}
+
+        rendu = tg.format_candidate(Faux())
+        self.assertIn("Recordati SpA", rendu)
+        self.assertIn("REC", rendu)
+
+    def test_the_ai_is_asked_to_answer_in_french(self):
+        from stockscan import ai_judge
+        self.assertIn("FRENCH", ai_judge.SYSTEM_PROMPT)
