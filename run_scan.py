@@ -13,7 +13,10 @@ import argparse
 import json
 import sys
 
+import time
+
 from stockscan import ai_judge, market_data as md, telegram, universe as uni
+from stockscan import watchlist as wl
 from stockscan import fundamentals as fu
 from stockscan.scan import Config, run
 
@@ -117,6 +120,17 @@ def scan(args) -> int:
             }, fh, ensure_ascii=False, indent=2)
         print(f"Rapport écrit dans {args.json}")
 
+    # Liste de surveillance : les plans retenus, suivis en séance par run_watch.
+    # On fusionne au lieu d'ecraser, sinon un plan deja declenche serait
+    # re-signale le lendemain comme s'il venait d'etre emis.
+    if args.watchlist:
+        maintenant = int(time.time())
+        neufs = [w for w in (wl.from_candidate(c, maintenant) for c in candidates) if w]
+        fusion = wl.merge(wl.load(args.watchlist), neufs)
+        wl.save(args.watchlist, fusion)
+        print(f"{len(fusion)} plan(s) dans la liste de surveillance "
+              f"({args.watchlist})")
+
     if args.dry_run:
         for message in telegram.build_report(summary, candidates):
             print("\n--- message Telegram ---")
@@ -148,6 +162,8 @@ def main(argv=None) -> int:
     run_parser.add_argument("--dry-run", action="store_true",
                             help="afficher les messages sans les envoyer")
     run_parser.add_argument("--json", default="", help="fichier de rapport JSON")
+    run_parser.add_argument("--watchlist", default="watchlist.json",
+                            help="liste de surveillance intraséance")
 
     args = parser.parse_args(argv)
     if args.command == "preflight":
