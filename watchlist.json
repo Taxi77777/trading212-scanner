@@ -40,7 +40,7 @@
     "stop": 51.0435,
     "target": 59.79,
     "created_ts": 1787316980,
-    "triggered": false,
+    "triggered": true,
     "closed": false,
     "outcome": ""
   },
@@ -55,7 +55,7 @@
     "stop": 6283.425,
     "target": 7355.0,
     "created_ts": 1787316980,
-    "triggered": false,
+    "triggered": true,
     "closed": false,
     "outcome": ""
   },
