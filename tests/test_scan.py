@@ -182,3 +182,27 @@ class TestTelegramFormatting(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_the_message_never_reads_as_an_order(self):
+        """Un utilisateur a ouvert une position en croyant recevoir un ordre.
+
+        « Entrée si le cours dépasse X » se lit comme une consigne. Le message
+        doit dire explicitement qu'il ne recommande rien, et le dire EN HAUT,
+        pas seulement dans la mention légale de bas de page.
+        """
+        summary, kept = self._candidates()
+        blob = "\n".join(tg.build_report(summary, kept)).lower()
+        self.assertIn("ne dit pas d'acheter", blob)
+        self.assertIn("pas une recommandation", blob)
+        self.assertIn("1 signal sur 3", blob)
+        for consigne in ("entrée si le cours dépasse", "tu gagnes", "tu perds"):
+            self.assertNotIn(consigne, blob, f"formulation impérative : {consigne}")
+
+    def test_the_warning_comes_before_the_first_candidate(self):
+        summary, kept = self._candidates()
+        if not kept:
+            self.skipTest("aucun candidat")
+        blob = "\n".join(tg.build_report(summary, kept))
+        self.assertLess(blob.index("ne dit pas d'acheter"),
+                        blob.index(kept[0].ticker),
+                        "l'avertissement doit précéder les valeurs")
