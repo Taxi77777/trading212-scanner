@@ -17,6 +17,7 @@ from typing import Any
 import requests
 
 from . import phases as ph
+from . import watchlist as wl
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
@@ -240,3 +241,48 @@ def send_report(summary: Any, candidates: list[Any], *,
             errors.append(result["error"])
     return {"ok": sent == len(messages), "sent": sent,
             "total": len(messages), "errors": errors}
+
+
+# --------------------------------------------------------------------------
+# Alertes de surveillance intraséance
+# --------------------------------------------------------------------------
+def format_event(event: Any) -> str:
+    """Court, net, actionnable. Une alerte se lit en marchant."""
+    w = event.watch
+    titre = wl.EVENT_LABEL.get(event.kind, event.kind)
+    nom = w.name or w.ticker
+    lines = [f"<b>{esc(titre)}</b>",
+             f"<b>{esc(nom)}</b> <i>({esc(w.ticker)} · {esc(w.market_label)})</i>",
+             f"Cours : <b>{_prix(event.price, w.currency)}</b>"]
+    for note in event.notes[:2]:
+        lines.append(esc(note))
+
+    if event.kind == wl.DECLENCHE:
+        lines.append("")
+        lines.append(f"Sortie de secours : <b>{_prix(w.stop, w.currency)}</b>")
+        lines.append(f"Objectif : <b>{_prix(w.target, w.currency)}</b>")
+        lines.append("<i>Le plan est enclenché. La sortie de secours est ce qui "
+                     "protège le capital.</i>")
+    elif event.kind == wl.STOPPE:
+        lines.append("")
+        lines.append("<i>Le plan est invalidé. C'est le scénario prévu, pas un "
+                     "accident : une perte sur trois est normale.</i>")
+    else:
+        lines.append("")
+        lines.append("<i>Le plan a atteint son objectif.</i>")
+
+    lines.append("")
+    lines.append(f"<i>{esc(DISCLAIMER.splitlines()[0])}</i>")
+    return "\n".join(lines)
+
+
+def send_events(events: list, *, dry_run: bool = False) -> dict[str, Any]:
+    envoyes, erreurs = 0, []
+    for event in events:
+        resultat = send(format_event(event), dry_run=dry_run)
+        if resultat["ok"]:
+            envoyes += 1
+        else:
+            erreurs.append(resultat["error"])
+    return {"ok": envoyes == len(events), "sent": envoyes,
+            "total": len(events), "errors": erreurs}
