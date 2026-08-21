@@ -18,6 +18,7 @@ from . import structure as st
 @dataclass
 class Candidate:
     ticker: str = ""
+    name: str = ""          # raison sociale, lue chez Yahoo
     symbol: str = ""
     market: str = ""
     market_label: str = ""

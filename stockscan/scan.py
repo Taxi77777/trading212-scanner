@@ -70,8 +70,12 @@ def _benchmark_bars(data: md.MarketData, symbols) -> dict[str, md.Bars]:
 def measure(stock: uni.Stock, bars: md.Bars, bench: md.Bars | None,
             market: uni.Market) -> Candidate:
     """Passe 1 : tout ce qui se calcule sans connaître le reste du marché."""
-    c = Candidate(ticker=stock.ticker, symbol=stock.symbol, market=market.code,
-                  market_label=market.label, currency=market.currency,
+    # Nom et devise viennent de Yahoo quand ils sont la : « REC » ne dit rien a
+    # personne, et une valeur londonienne est cotee en PENCE, pas en livres.
+    c = Candidate(ticker=stock.ticker, name=bars.name or stock.ticker,
+                  symbol=stock.symbol, market=market.code,
+                  market_label=market.label,
+                  currency=bars.currency or market.currency,
                   benchmark_label=market.index_label, price=bars.close[-1])
     c.trend = st.trend(bars)
     c.base = st.detect_base(bars)

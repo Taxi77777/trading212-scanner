@@ -64,6 +64,20 @@ def _num(value: float | None, digits: int = 2) -> str:
     return "—" if value is None else f"{value:,.{digits}f}".replace(",", " ")
 
 
+def _prix(value: float | None, currency: str = "") -> str:
+    """Prix lisible, avec la conversion quand la cotation trompe.
+
+    Londres cote en PENCE : « 1295 GBP » se lit comme mille deux cent
+    quatre-vingt-quinze livres alors qu'il s'agit de 12,95 £. Un facteur cent
+    sur un message d'aide a la decision n'est pas une coquette imprecision.
+    """
+    if value is None:
+        return "—"
+    if currency == "GBp":
+        return f"{_num(value)} pence (soit {_num(value / 100)} £)"
+    return f"{_num(value)} {currency}".strip()
+
+
 # --------------------------------------------------------------------------
 # Mise en forme
 # --------------------------------------------------------------------------
@@ -137,18 +151,24 @@ def format_candidate(c: Any, rank: int | None = None) -> str:
     qui permet de decider : a quel prix, ou est la sortie, combien engager.
     """
     medal = MEDALS[rank] if rank is not None and rank < len(MEDALS) else "▪️"
-    lines = [f"{medal} <b>{esc(c.ticker)}</b> — {esc(c.market_label)}",
-             f"Cours actuel : <b>{_num(c.price)} {esc(c.currency)}</b>",
+    nom = getattr(c, "name", "") or c.ticker
+    titre = f"{medal} <b>{esc(nom)}</b>"
+    if nom != c.ticker:
+        titre += f" <i>({esc(c.ticker)} · {esc(c.market_label)})</i>"
+    else:
+        titre += f" <i>({esc(c.market_label)})</i>"
+    lines = [titre,
+             f"Cours actuel : <b>{_prix(c.price, c.currency)}</b>",
              PHASE_PREUVE.get(c.phase.name, ""),
              ""]
 
     if c.plan.tradeable:
         cible = c.plan.targets[0] if c.plan.targets else None
-        lines.append(f"Entrée si le cours dépasse <b>{_num(c.plan.entry)}</b>")
-        lines.append(f"Sortie de secours à <b>{_num(c.plan.stop)}</b> "
+        lines.append(f"Entrée si le cours dépasse <b>{_prix(c.plan.entry, c.currency)}</b>")
+        lines.append(f"Sortie de secours à <b>{_prix(c.plan.stop, c.currency)}</b> "
                      f"→ tu perds {c.plan.risk_pct:.1f} %")
         if cible:
-            lines.append(f"Objectif <b>{_num(cible.price)}</b> "
+            lines.append(f"Objectif <b>{_prix(cible.price, c.currency)}</b> "
                          f"→ tu gagnes {cible.r_multiple:.1f} fois ce que tu risques")
         lines.append(f"Ne pas engager plus de <b>{c.plan.position_pct:.0f} %</b> "
                      "de ton capital")

@@ -55,17 +55,25 @@ class Bars:
     low: list[float]
     close: list[float]
     volume: list[float]
+    # Yahoo renvoie le nom de la societe et la devise REELLE dans le meme appel.
+    # Les recuperer ici ne coute aucune requete supplementaire et evite deux
+    # erreurs : afficher « REC » a quelqu'un qui cherche Recordati, et afficher
+    # « 1295 GBP » pour une valeur londonienne cotee en PENCE — un facteur 100.
+    name: str = ""
+    currency: str = ""
 
     def __len__(self) -> int:
         return len(self.close)
 
     def tail(self, n: int) -> "Bars":
         return Bars(self.ts[-n:], self.open[-n:], self.high[-n:],
-                    self.low[-n:], self.close[-n:], self.volume[-n:])
+                    self.low[-n:], self.close[-n:], self.volume[-n:],
+                    self.name, self.currency)
 
     def head(self, n: int) -> "Bars":
         return Bars(self.ts[:n], self.open[:n], self.high[:n],
-                    self.low[:n], self.close[:n], self.volume[:n])
+                    self.low[:n], self.close[:n], self.volume[:n],
+                    self.name, self.currency)
 
 
 class Throttle:
@@ -132,6 +140,7 @@ class MarketData:
                 result = r.json()["chart"]["result"][0]
                 stamps = result.get("timestamp") or []
                 q = result["indicators"]["quote"][0]
+                meta = result.get("meta") or {}
             except (ValueError, KeyError, TypeError, IndexError):
                 self._bump("empty")
                 return None
@@ -145,8 +154,11 @@ class MarketData:
                 self._bump("empty")
                 return None
             self._bump("ok")
+            nom = (meta.get("longName") or meta.get("shortName") or "").strip()
+            devise = (meta.get("currency") or "").strip()
             return Bars([x[0] for x in rows], [x[1] for x in rows], [x[2] for x in rows],
-                        [x[3] for x in rows], [x[4] for x in rows], [x[5] for x in rows])
+                        [x[3] for x in rows], [x[4] for x in rows], [x[5] for x in rows],
+                        nom, devise)
         self._bump("empty")
         return None
 

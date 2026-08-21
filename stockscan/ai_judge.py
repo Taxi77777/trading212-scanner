@@ -57,6 +57,8 @@ SYSTEM_PROMPT = (
     "phase - for example an extended stock presented as a pre-breakout, or a downtrend "
     "presented as accumulation. Use PRUDENCE when the setup remains defensible but carries "
     "identified risks. Never state that a stock will rise. "
+    "Write the \"reason\" field in FRENCH, in one short plain sentence a "
+    "non-specialist can understand. Every other key stays as specified. "
     "/no_think"
 )
 
