@@ -28,6 +28,9 @@ concurrency:
   group: stock-scanner
   cancel-in-progress: false
 
+permissions:
+  contents: write
+
 jobs:
   scan:
     runs-on: ubuntu-latest
@@ -70,6 +73,23 @@ jobs:
             --min-score "${{ github.event.inputs.min_score || '55' }}" \
             --json scan_report.json \
             $ARGS
+
+      # La liste de surveillance est relue toutes les 30 min par le workflow
+      # « Surveillance des plans » : elle doit etre commitee, pas seulement
+      # produite dans un artefact ephemere.
+      - name: Mémoriser la liste de surveillance
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add watchlist.json
+          if git diff --cached --quiet; then
+            echo "Liste inchangée."
+            exit 0
+          fi
+          git commit -m "chore: liste de surveillance du jour [skip ci]"
+          git pull --rebase --autostash origin main
+          git push
 
       - name: Conserver le rapport
         if: always()
