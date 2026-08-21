@@ -33,7 +33,14 @@ DISCLAIMER = ("Analyse statistique, pas un conseil d'investissement. "
               "plus gros que les pertes. L'avantage est réel et mince : il ne "
               "se voit que sur des dizaines de trades, jamais sur un seul.")
 
-LEGENDE = ("<b>Comment lire</b>\n"
+LEGENDE = ("<b>⚠️ À lire avant tout</b>\n"
+           "Ce message <b>ne dit pas d'acheter</b>. Il décrit des configurations "
+           "repérées automatiquement.\n"
+           "<b>Environ 1 signal sur 3 gagne.</b> Deux sur trois finissent sur la "
+           "sortie de secours — c'est prévu, pas accidentel.\n"
+           "Un signal isolé ne prouve rien : l'avantage mesuré est mince et ne "
+           "se voit que sur des dizaines d'opérations.\n\n"
+           "<b>Comment lire</b>\n"
            "L'ordre 🥇🥈🥉 est celui du système ; il n'a pas été prouvé qu'un mieux classé finit mieux.\n"
            "« Sortie de secours » = le prix qui prouve que l'analyse est fausse. "
            "S'y tenir est ce qui protège le capital.\n"
@@ -165,14 +172,21 @@ def format_candidate(c: Any, rank: int | None = None) -> str:
 
     if c.plan.tradeable:
         cible = c.plan.targets[0] if c.plan.targets else None
-        lines.append(f"Entrée si le cours dépasse <b>{_prix(c.plan.entry, c.currency)}</b>")
-        lines.append(f"Sortie de secours à <b>{_prix(c.plan.stop, c.currency)}</b> "
-                     f"→ tu perds {c.plan.risk_pct:.1f} %")
+        # Formulation deliberement descriptive. « Entree si le cours depasse X »
+        # se lit comme une consigne : un utilisateur a ouvert une position en
+        # croyant recevoir un ordre d'achat. Le scanner decrit un scenario, il
+        # ne recommande rien — la phrase doit le dire, pas seulement la mention
+        # legale en bas de message.
+        lines.append("<b>SCÉNARIO REPÉRÉ</b> — ce n'est pas une recommandation")
+        lines.append(f"Il devient valide au-dessus de "
+                     f"<b>{_prix(c.plan.entry, c.currency)}</b>")
+        lines.append(f"Il est démenti à <b>{_prix(c.plan.stop, c.currency)}</b> "
+                     f"(soit −{c.plan.risk_pct:.1f} %)")
         if cible:
-            lines.append(f"Objectif <b>{_prix(cible.price, c.currency)}</b> "
-                         f"→ tu gagnes {cible.r_multiple:.1f} fois ce que tu risques")
-        lines.append(f"Ne pas engager plus de <b>{c.plan.position_pct:.0f} %</b> "
-                     "de ton capital")
+            lines.append(f"Il viserait <b>{_prix(cible.price, c.currency)}</b> "
+                         f"({cible.r_multiple:.1f} fois ce qui serait risqué)")
+        lines.append(f"Au-delà de <b>{c.plan.position_pct:.0f} %</b> du capital, "
+                     "la taille devient imprudente")
     else:
         reason = c.plan.notes[0] if c.plan.notes else "structure insuffisante"
         lines.append(f"<i>Pas de plan exploitable — {esc(reason)}</i>")
